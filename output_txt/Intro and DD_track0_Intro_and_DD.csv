@@ -1,0 +1,8 @@
+Position,Bar,Beat,Tick,Type,Channel,Note,Note_Name,Velocity,Duration_Ticks,Off_Position,Controller,Value
+1.1.0,1,1,0,Meta_track_name,,,,,,,,Intro and DD
+1.1.0,1,1,0,Meta_time_signature,,,,,,,,
+1.1.0,1,1,0,Meta_set_tempo,,,,,,,,666666
+35.1.0,35,1,0,Meta_time_signature,,,,,,,,
+35.2.471,35,2,471,Meta_set_tempo,,,,,,,,461538
+35.3.0,35,3,0,Meta_time_signature,,,,,,,,
+35.3.0,35,3,0,Meta_end_of_track,,,,,,,,

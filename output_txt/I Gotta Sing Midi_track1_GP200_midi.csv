@@ -1,0 +1,9 @@
+Position,Bar,Beat,Tick,Type,Channel,Note,Note_Name,Velocity,Duration_Ticks,Off_Position,Controller,Value
+1.1.0,1,1,0,Meta_track_name,,,,,,,,GP200 midi
+1.1.120,1,1,120,control_change,2,,,,,,50,1
+1.1.240,1,1,240,control_change,2,,,,,,47,11
+1.4.160,1,4,160,program_change,2,,,,,,,16
+22.2.477,22,2,477,program_change,2,,,,,,,17
+179.1.26,179,1,26,program_change,2,,,,,,,18
+185.4.32,185,4,32,program_change,2,,,,,,,17
+185.4.32,185,4,32,Meta_end_of_track,,,,,,,,

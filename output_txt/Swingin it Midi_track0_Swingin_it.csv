@@ -1,0 +1,9 @@
+Position,Bar,Beat,Tick,Type,Channel,Note,Note_Name,Velocity,Duration_Ticks,Off_Position,Controller,Value
+1.1.0,1,1,0,Meta_track_name,,,,,,,,Swingin it
+1.1.0,1,1,0,Meta_time_signature,,,,,,,,
+1.1.0,1,1,0,Meta_set_tempo,,,,,,,,327868
+138.1.0,138,1,0,Meta_set_tempo,,,,,,,,342857
+147.1.0,147,1,0,Meta_set_tempo,,,,,,,,327868
+165.1.0,165,1,0,Meta_time_signature,,,,,,,,
+165.3.0,165,3,0,Meta_time_signature,,,,,,,,
+165.3.0,165,3,0,Meta_end_of_track,,,,,,,,

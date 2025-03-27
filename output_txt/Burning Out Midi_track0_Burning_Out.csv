@@ -1,0 +1,15 @@
+Position,Bar,Beat,Tick,Type,Channel,Note,Note_Name,Velocity,Duration_Ticks,Off_Position,Controller,Value
+1.1.0,1,1,0,Meta_track_name,,,,,,,,Burning Out
+1.1.0,1,1,0,Meta_time_signature,,,,,,,,
+1.1.0,1,1,0,Meta_set_tempo,,,,,,,,521739
+63.1.0,63,1,0,Meta_set_tempo,,,,,,,,487804
+73.1.0,73,1,0,Meta_set_tempo,,,,,,,,489798
+73.2.0,73,2,0,Meta_set_tempo,,,,,,,,493830
+73.3.0,73,3,0,Meta_set_tempo,,,,,,,,497928
+73.4.0,73,4,0,Meta_set_tempo,,,,,,,,502094
+74.1.0,74,1,0,Meta_set_tempo,,,,,,,,506332
+74.2.0,74,2,0,Meta_set_tempo,,,,,,,,510641
+74.3.0,74,3,0,Meta_set_tempo,,,,,,,,515024
+74.4.0,74,4,0,Meta_set_tempo,,,,,,,,519483
+75.1.0,75,1,0,Meta_set_tempo,,,,,,,,521739
+75.1.0,75,1,0,Meta_end_of_track,,,,,,,,

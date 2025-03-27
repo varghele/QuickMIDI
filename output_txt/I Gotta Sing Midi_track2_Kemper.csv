@@ -1,0 +1,5 @@
+Position,Bar,Beat,Tick,Type,Channel,Note,Note_Name,Velocity,Duration_Ticks,Off_Position,Controller,Value
+1.1.0,1,1,0,Meta_track_name,,,,,,,,Kemper
+1.1.160,1,1,160,control_change,1,,,,,,47,11
+1.2.0,1,2,0,control_change,1,,,,,,50,1
+1.2.0,1,2,0,Meta_end_of_track,,,,,,,,

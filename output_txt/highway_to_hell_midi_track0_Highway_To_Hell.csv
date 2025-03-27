@@ -1,0 +1,5 @@
+Position,Bar,Beat,Tick,Type,Channel,Note,Note_Name,Velocity,Duration_Ticks,Off_Position,Controller,Value
+1.1.0,1,1,0,Meta_track_name,,,,,,,,Highway To Hell
+1.1.0,1,1,0,Meta_set_tempo,,,,,,,,480000
+1.1.0,1,1,0,Meta_time_signature,,,,,,,,
+1.1.0,1,1,0,Meta_end_of_track,,,,,,,,
