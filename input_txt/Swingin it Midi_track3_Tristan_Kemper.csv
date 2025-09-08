@@ -1,5 +1,0 @@
-Position,Bar,Beat,Tick,Type,Channel,Note,Note_Name,Velocity,Duration_Ticks,Off_Position,Controller,Value
-1.1.0,1,1,0,Meta_track_name,,,,,,,,Tristan Kemper
-1.1.104,1,1,104,control_change,1,,,,,,47,11
-1.1.222,1,1,222,control_change,1,,,,,,52,1
-1.1.222,1,1,222,Meta_end_of_track,,,,,,,,

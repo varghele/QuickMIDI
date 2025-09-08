@@ -1,5 +1,0 @@
-Position,Bar,Beat,Tick,Type,Channel,Note,Note_Name,Velocity,Duration_Ticks,Off_Position,Controller,Value
-1.1.0,1,1,0,Meta_track_name,,,,,,,,Lights
-1.1.6,1,1,6,Note,0,24,C1,100,234,1.1.240,,
-149.4.232,149,4,232,Meta_end_of_track,,,,,,,,
-149.3.472,149,4,472,Note,0,48,C3,100,240,149.4.232,,

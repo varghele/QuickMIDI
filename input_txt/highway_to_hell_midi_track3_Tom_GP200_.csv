@@ -1,7 +1,0 @@
-Position,Bar,Beat,Tick,Type,Channel,Note,Note_Name,Velocity,Duration_Ticks,Off_Position,Controller,Value
-1.1.0,1,1,0,Meta_track_name,,,,,,,,Tom GP200 
-1.2.413,1,2,413,program_change,2,,,,,,,13
-6.1.320,6,1,320,program_change,2,,,,,,,14
-65.4.0,65,4,0,program_change,2,,,,,,,15
-75.2.476,75,2,476,program_change,2,,,,,,,14
-75.2.476,75,2,476,Meta_end_of_track,,,,,,,,
