@@ -1,19 +1,94 @@
 from PyQt6.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QLabel,
                              QPushButton, QCheckBox, QSpinBox, QLineEdit,
-                             QFrame, QFileDialog, QMessageBox, QComboBox)
-from PyQt6.QtCore import Qt, pyqtSignal, QMimeData
-from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QPalette
+                             QFrame, QFileDialog, QMessageBox, QComboBox,
+                             QScrollArea)
+from PyQt6.QtCore import Qt, pyqtSignal, QMimeData, QTimer
+from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QPalette, QPainter, QPen, QColor
 from core.lane import Lane, AudioLane, MidiLane
 from .midi_block_widget import MidiBlockWidget
+from styles import theme_manager
+
+
+class TimelineWidget(QWidget):
+    """Custom timeline widget with grid drawing and snap functionality"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.bpm = 120.0
+        self.pixels_per_beat = 60
+        self.snap_to_grid = True
+        self.setMinimumHeight(60)
+        self.setStyleSheet("background-color: #f8f8f8; border: 1px solid #ddd;")
+
+    def set_bpm(self, bpm):
+        """Set BPM for grid calculations"""
+        self.bpm = bpm
+        self.update()
+
+    def set_pixels_per_beat(self, pixels):
+        """Set zoom level (pixels per beat)"""
+        self.pixels_per_beat = pixels
+        self.update()
+
+    def set_snap_to_grid(self, snap):
+        """Enable/disable snap to grid"""
+        self.snap_to_grid = snap
+
+    def paintEvent(self, event):
+        """Draw the grid lines"""
+        super().paintEvent(event)
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # Draw beat lines (every beat)
+        beat_pen = QPen(QColor("#cccccc"), 1)
+        painter.setPen(beat_pen)
+
+        width = self.width()
+        height = self.height()
+
+        # Draw vertical grid lines for beats
+        x = 0
+        beat_count = 0
+        while x < width:
+            if beat_count % 4 == 0:  # Bar line (every 4 beats)
+                bar_pen = QPen(QColor("#999999"), 2)
+                painter.setPen(bar_pen)
+            else:  # Beat line
+                painter.setPen(beat_pen)
+
+            painter.drawLine(x, 0, x, height)
+            x += self.pixels_per_beat
+            beat_count += 1
+
+        # Draw time markers
+        painter.setPen(QPen(QColor("#666666"), 1))
+        font = painter.font()
+        font.setPointSize(8)
+        painter.setFont(font)
+
+        x = 0
+        bar_number = 1
+        while x < width:
+            if x > 0:  # Don't draw at x=0
+                time_seconds = (bar_number - 1) * 4 * (60.0 / self.bpm)
+                painter.drawText(x + 2, 12, f"Bar {bar_number} ({time_seconds:.1f}s)")
+            x += self.pixels_per_beat * 4  # Every 4 beats (1 bar)
+            bar_number += 1
 
 
 class LaneWidget(QFrame):
-    remove_requested = pyqtSignal(object)  # Emits self when removal is requested
+    remove_requested = pyqtSignal(object)
 
     def __init__(self, lane: Lane, parent=None):
         super().__init__(parent)
         self.lane = lane
         self.midi_block_widgets = []
+        self.main_window = parent
+
+        # Apply widget style
+        self.setStyleSheet(theme_manager.get_lane_widget_style())
 
         self.setFrameStyle(QFrame.Shape.Box)
         self.setLineWidth(1)
@@ -28,10 +103,10 @@ class LaneWidget(QFrame):
 
         # Lane controls section (left side)
         controls_widget = QWidget()
-        controls_widget.setFixedWidth(200)
+        controls_widget.setFixedWidth(250)
         controls_layout = QVBoxLayout(controls_widget)
 
-        # Lane name and type
+        # Lane name and type (first row)
         name_layout = QHBoxLayout()
         self.name_edit = QLineEdit(self.lane.name)
         self.name_edit.textChanged.connect(self.on_name_changed)
@@ -44,22 +119,15 @@ class LaneWidget(QFrame):
         name_layout.addWidget(self.name_edit)
         name_layout.addWidget(self.remove_button)
 
+        # Apply styles to input fields
+        self.name_edit.setStyleSheet(theme_manager.get_line_edit_style())
+        # Style the remove button
+        self.remove_button.setStyleSheet(theme_manager.get_remove_button_style())
+
         controls_layout.addLayout(name_layout)
 
-        # Lane-specific controls
+        # Lane-specific controls (second row)
         lane_specific_layout = QHBoxLayout()
-
-        # Mute and Solo buttons
-        self.mute_checkbox = QCheckBox("Mute")
-        self.solo_checkbox = QCheckBox("Solo")
-        self.mute_checkbox.setChecked(self.lane.muted)
-        self.solo_checkbox.setChecked(self.lane.solo)
-
-        self.mute_checkbox.toggled.connect(self.on_mute_toggled)
-        self.solo_checkbox.toggled.connect(self.on_solo_toggled)
-
-        lane_specific_layout.addWidget(self.mute_checkbox)
-        lane_specific_layout.addWidget(self.solo_checkbox)
 
         if isinstance(self.lane, MidiLane):
             self.setup_midi_controls(lane_specific_layout)
@@ -68,20 +136,66 @@ class LaneWidget(QFrame):
 
         controls_layout.addLayout(lane_specific_layout)
 
+        # Mute, Solo, and Snap controls (third row)
+        control_buttons_layout = QHBoxLayout()
+
+        # Mute and Solo buttons
+        self.mute_button = QPushButton("M")
+        self.solo_button = QPushButton("S")
+
+        # Make buttons smaller and more compact
+        self.mute_button.setFixedSize(30, 25)
+        self.solo_button.setFixedSize(30, 25)
+
+        # Style the buttons
+        self.mute_button.setCheckable(True)
+        self.solo_button.setCheckable(True)
+
+        self.mute_button.setChecked(self.lane.muted)
+        self.solo_button.setChecked(self.lane.solo)
+
+        # Set initial styles
+        self.update_mute_button_style()
+        self.update_solo_button_style()
+
+        self.mute_button.toggled.connect(self.on_mute_toggled)
+        self.solo_button.toggled.connect(self.on_solo_toggled)
+
+        control_buttons_layout.addWidget(self.mute_button)
+        control_buttons_layout.addWidget(self.solo_button)
+
+        # Add snap to grid control for MIDI lanes
+        if isinstance(self.lane, MidiLane):
+            # Add some spacing between buttons and checkbox
+            control_buttons_layout.addSpacing(10)
+
+            self.snap_checkbox = QCheckBox("Snap")
+            self.snap_checkbox.setChecked(True)
+            self.snap_checkbox.toggled.connect(self.on_snap_toggled)
+            control_buttons_layout.addWidget(self.snap_checkbox)
+
+        control_buttons_layout.addStretch()  # Push everything to the left
+
+        controls_layout.addLayout(control_buttons_layout)
+
         main_layout.addWidget(controls_widget)
 
-        # Timeline section (right side)
-        self.timeline_widget = QWidget()
-        self.timeline_widget.setStyleSheet("background-color: #f0f0f0; border: 1px solid #ccc;")
-        self.timeline_layout = QHBoxLayout(self.timeline_widget)
-        self.timeline_layout.setContentsMargins(5, 5, 5, 5)
+        # Timeline section (right side) - scrollable
+        self.timeline_scroll = QScrollArea()
+        self.timeline_widget = TimelineWidget()
+        self.timeline_widget.setMinimumWidth(2000)  # Wide timeline
 
         if isinstance(self.lane, MidiLane):
             self.setup_midi_timeline()
         elif isinstance(self.lane, AudioLane):
             self.setup_audio_timeline()
 
-        main_layout.addWidget(self.timeline_widget, 1)  # Stretch factor 1
+        self.timeline_scroll.setWidget(self.timeline_widget)
+        self.timeline_scroll.setWidgetResizable(False)
+        self.timeline_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.timeline_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        main_layout.addWidget(self.timeline_scroll, 1)
 
     def setup_midi_controls(self, layout):
         # MIDI Channel selection
@@ -90,17 +204,23 @@ class LaneWidget(QFrame):
         self.channel_spinbox.setRange(1, 16)
         self.channel_spinbox.setValue(self.lane.midi_channel)
         self.channel_spinbox.valueChanged.connect(self.on_channel_changed)
+        # Style the channel spinbox
+        self.channel_spinbox.setStyleSheet(theme_manager.get_spinbox_style())
         layout.addWidget(self.channel_spinbox)
 
         # Channel name
         self.channel_name_edit = QLineEdit(self.lane.channel_name)
         self.channel_name_edit.setPlaceholderText("Channel Name")
         self.channel_name_edit.textChanged.connect(self.on_channel_name_changed)
+        # Style the channel name edit
+        self.channel_name_edit.setStyleSheet(theme_manager.get_line_edit_style())
         layout.addWidget(self.channel_name_edit)
 
         # Add MIDI block button
         self.add_block_button = QPushButton("Add Block")
         self.add_block_button.clicked.connect(self.add_midi_block)
+        # Style the add block button
+        self.add_block_button.setStyleSheet(theme_manager.get_action_button_style())
         layout.addWidget(self.add_block_button)
 
     def setup_audio_controls(self, layout):
@@ -109,13 +229,14 @@ class LaneWidget(QFrame):
         self.load_audio_button.clicked.connect(self.load_audio_file)
         layout.addWidget(self.load_audio_button)
 
-        # Volume control (simplified)
+        # Volume control
         layout.addWidget(QLabel("Vol:"))
         self.volume_spinbox = QSpinBox()
         self.volume_spinbox.setRange(0, 100)
         self.volume_spinbox.setValue(int(self.lane.volume * 100))
         self.volume_spinbox.valueChanged.connect(self.on_volume_changed)
         layout.addWidget(self.volume_spinbox)
+        layout.addStretch()  # Push controls to the left
 
     def setup_midi_timeline(self):
         # Create MIDI block widgets for existing blocks
@@ -126,15 +247,23 @@ class LaneWidget(QFrame):
         # Show audio file info if loaded
         if self.lane.audio_file_path:
             audio_label = QLabel(f"Audio: {self.lane.audio_file_path.split('/')[-1]}")
-            self.timeline_layout.addWidget(audio_label)
+            audio_label.setParent(self.timeline_widget)
+            audio_label.move(10, 20)
         else:
             placeholder_label = QLabel("Drag audio file here or use Load Audio button")
             placeholder_label.setStyleSheet("color: #888; font-style: italic;")
-            self.timeline_layout.addWidget(placeholder_label)
+            placeholder_label.setParent(self.timeline_widget)
+            placeholder_label.move(10, 20)
 
     def setup_drag_drop(self):
         if isinstance(self.lane, AudioLane):
             self.setAcceptDrops(True)
+
+    def update_bpm(self, bpm):
+        """Update BPM for grid calculations"""
+        self.timeline_widget.set_bpm(bpm)
+        for block_widget in self.midi_block_widgets:
+            block_widget.update_position()
 
     def dragEnterEvent(self, event: QDragEnterEvent):
         if isinstance(self.lane, AudioLane) and event.mimeData().hasUrls():
@@ -152,22 +281,33 @@ class LaneWidget(QFrame):
             event.acceptProposedAction()
 
     def create_midi_block_widget(self, block):
-        block_widget = MidiBlockWidget(block, self)
+        block_widget = MidiBlockWidget(block, self.timeline_widget)
         block_widget.remove_requested.connect(self.remove_midi_block_widget)
+        block_widget.position_changed.connect(self.on_block_position_changed)
+
+        # Set grid properties
+        block_widget.set_grid_size(self.timeline_widget.pixels_per_beat)
+        block_widget.set_snap_to_grid(self.timeline_widget.snap_to_grid)
+
         self.midi_block_widgets.append(block_widget)
-        self.timeline_layout.addWidget(block_widget)
+        block_widget.show()
 
     def add_midi_block(self):
         if isinstance(self.lane, MidiLane):
-            # Add block at current timeline position (simplified to 0 for now)
+            # Add block at timeline start
             block = self.lane.add_midi_block(0.0, 1.0)
             self.create_midi_block_widget(block)
 
     def remove_midi_block_widget(self, block_widget):
         self.lane.remove_midi_block(block_widget.block)
         self.midi_block_widgets.remove(block_widget)
-        self.timeline_layout.removeWidget(block_widget)
         block_widget.deleteLater()
+
+    def on_block_position_changed(self, block_widget, new_start_time):
+        """Handle when a MIDI block is moved"""
+        # The block's start_time is already updated in the widget
+        # We could add additional logic here if needed
+        pass
 
     def load_audio_file(self):
         file_path, _ = QFileDialog.getOpenFileName(
@@ -180,10 +320,8 @@ class LaneWidget(QFrame):
 
     def refresh_audio_timeline(self):
         # Clear existing widgets
-        for i in reversed(range(self.timeline_layout.count())):
-            child = self.timeline_layout.itemAt(i).widget()
-            if child:
-                child.deleteLater()
+        for child in self.timeline_widget.findChildren(QLabel):
+            child.deleteLater()
 
         # Re-setup timeline
         self.setup_audio_timeline()
@@ -194,9 +332,11 @@ class LaneWidget(QFrame):
 
     def on_mute_toggled(self, checked):
         self.lane.muted = checked
+        self.update_mute_button_style()
 
     def on_solo_toggled(self, checked):
         self.lane.solo = checked
+        self.update_solo_button_style()
 
     def on_channel_changed(self, value):
         if isinstance(self.lane, MidiLane):
@@ -209,3 +349,31 @@ class LaneWidget(QFrame):
     def on_volume_changed(self, value):
         if isinstance(self.lane, AudioLane):
             self.lane.volume = value / 100.0
+
+    def on_snap_toggled(self, checked):
+        """Toggle snap to grid for all MIDI blocks in this lane"""
+        if isinstance(self.lane, MidiLane):
+            self.timeline_widget.set_snap_to_grid(checked)
+            for block_widget in self.midi_block_widgets:
+                block_widget.set_snap_to_grid(checked)
+
+    #def update_mute_button_style(self):
+    #    """Update mute button appearance based on state"""
+    #    style = theme_manager.get_mute_button_style(self.mute_button.isChecked())
+    #    self.mute_button.setStyleSheet(style)
+
+    #def update_solo_button_style(self):
+    #    """Update solo button appearance based on state"""
+    #    style = theme_manager.get_solo_button_style(self.solo_button.isChecked())
+    #    self.solo_button.setStyleSheet(style)
+
+    def update_mute_button_style(self):
+        """Update mute button appearance based on state"""
+        style = theme_manager.get_mute_button_compact_style(self.mute_button.isChecked())
+        self.mute_button.setStyleSheet(style)
+
+    def update_solo_button_style(self):
+        """Update solo button appearance based on state"""
+        style = theme_manager.get_solo_button_compact_style(self.solo_button.isChecked())
+        self.solo_button.setStyleSheet(style)
+

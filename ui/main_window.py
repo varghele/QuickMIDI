@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import (QMainWindow, QVBoxLayout, QHBoxLayout,
+from PyQt6.QtWidgets import (QMainWindow, QVBoxLayout, QHBoxLayout, QCheckBox,
                              QWidget, QPushButton, QScrollArea, QMenuBar,
                              QFileDialog, QMessageBox, QLabel, QSpinBox)
 from PyQt6.QtCore import Qt
@@ -35,9 +35,16 @@ class MainWindow(QMainWindow):
         self.stop_button = QPushButton("Stop")
         self.record_button = QPushButton("Record")
 
+        grid_label = QLabel("Grid:")
+        self.snap_checkbox = QCheckBox("Snap to Grid")
+        self.snap_checkbox.setChecked(True)
+        self.snap_checkbox.toggled.connect(self.on_global_snap_toggled)
+
         transport_layout.addWidget(self.play_button)
         transport_layout.addWidget(self.stop_button)
         transport_layout.addWidget(self.record_button)
+        transport_layout.addWidget(grid_label)
+        transport_layout.addWidget(self.snap_checkbox)
         transport_layout.addStretch()
 
         # BPM control
@@ -45,6 +52,9 @@ class MainWindow(QMainWindow):
         self.bpm_spinbox = QSpinBox()
         self.bpm_spinbox.setRange(60, 200)
         self.bpm_spinbox.setValue(120)
+
+        # Connect BPM changes
+        self.bpm_spinbox.valueChanged.connect(self.on_bpm_changed)
 
         transport_layout.addWidget(bpm_label)
         transport_layout.addWidget(self.bpm_spinbox)
@@ -163,3 +173,15 @@ class MainWindow(QMainWindow):
 
         # Update BPM
         self.bpm_spinbox.setValue(int(self.project.bpm))
+
+    def on_bpm_changed(self, bpm):
+        """Update BPM across all lanes"""
+        self.project.bpm = float(bpm)
+        for lane_widget in self.lane_widgets:
+            lane_widget.update_bpm(bpm)
+
+    def on_global_snap_toggled(self, checked):
+        """Toggle snap to grid globally"""
+        for lane_widget in self.lane_widgets:
+            if hasattr(lane_widget, 'snap_checkbox'):
+                lane_widget.snap_checkbox.setChecked(checked)
