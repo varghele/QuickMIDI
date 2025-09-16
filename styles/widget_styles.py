@@ -9,9 +9,19 @@ class WidgetStyles:
     # Lane widget styles
     LANE_WIDGET = """
         QFrame {
-            background-color: #fafafa;
+            background-color: #3b444b;
             border: 1px solid #ddd;
             border-radius: 4px;
+        }
+    """
+
+    LANES_CONTAINER = """
+        QScrollArea {
+            background-color: #fafafa;
+            border: 1px solid #ddd;
+        }
+        QScrollArea > QWidget > QWidget {
+            background-color: #fafafa;
         }
     """
 

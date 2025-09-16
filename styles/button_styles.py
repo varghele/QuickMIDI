@@ -106,14 +106,34 @@ class ButtonStyles:
 
     # Transport button styles
     TRANSPORT_BUTTON = """
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                border: 1px solid #45a049;
+                border-radius: 6px;
+                padding: 8px 16px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+            QPushButton:pressed {
+                background-color: #3d8b40;
+            }
+        """
+
+    TRANSPORT_BUTTON_PLAY = """
         QPushButton {
             background-color: #4CAF50;
             color: white;
             border: 1px solid #45a049;
             border-radius: 6px;
-            padding: 8px 16px;
-            font-size: 14px;
+            padding: 8px;
+            font-size: 18px;
             font-weight: bold;
+            min-width: 45px;
+            min-height: 35px;
         }
         QPushButton:hover {
             background-color: #45a049;
@@ -129,9 +149,11 @@ class ButtonStyles:
             color: white;
             border: 1px solid #E64A19;
             border-radius: 6px;
-            padding: 8px 16px;
-            font-size: 14px;
+            padding: 8px;
+            font-size: 18px;
             font-weight: bold;
+            min-width: 45px;
+            min-height: 35px;
         }
         QPushButton:hover {
             background-color: #E64A19;
@@ -147,9 +169,11 @@ class ButtonStyles:
             color: white;
             border: 1px solid #d32f2f;
             border-radius: 6px;
-            padding: 8px 16px;
-            font-size: 14px;
+            padding: 8px;
+            font-size: 18px;
             font-weight: bold;
+            min-width: 45px;
+            min-height: 35px;
         }
         QPushButton:hover {
             background-color: #d32f2f;

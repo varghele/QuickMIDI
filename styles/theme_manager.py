@@ -50,13 +50,19 @@ class ThemeManager:
             return self.button_styles.TRANSPORT_BUTTON_STOP
         elif button_type == "record":
             return self.button_styles.TRANSPORT_BUTTON_RECORD
+        elif button_type == "play":
+            return self.button_styles.TRANSPORT_BUTTON_PLAY
         else:
-            return self.button_styles.TRANSPORT_BUTTON
+            self.button_styles.TRANSPORT_BUTTON
 
     # Widget style getters
     def get_lane_widget_style(self) -> str:
         """Get lane widget style"""
         return self.widget_styles.LANE_WIDGET
+
+    def get_lanes_container_style(self) -> str:
+        """Get lanes container style"""
+        return self.widget_styles.LANES_CONTAINER
 
     def get_midi_block_style(self, dragging: bool = False) -> str:
         """Get MIDI block style based on state"""

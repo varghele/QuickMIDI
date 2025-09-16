@@ -7,7 +7,7 @@ from core.project import Project
 from core.lane import AudioLane, MidiLane
 from .lane_widget import LaneWidget
 from utils.file_manager import FileManager
-
+from styles import theme_manager
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -31,9 +31,14 @@ class MainWindow(QMainWindow):
         # Transport controls
         transport_layout = QHBoxLayout()
 
-        self.play_button = QPushButton("Play")
-        self.stop_button = QPushButton("Stop")
-        self.record_button = QPushButton("Record")
+        self.play_button = QPushButton("▶")  # Play triangle
+        self.stop_button = QPushButton("❚❚")  # Stop symbol (pause bars)
+        self.record_button = QPushButton("●")  # Record circle
+
+        # Apply transport button styles
+        self.play_button.setStyleSheet(theme_manager.get_transport_button_style("play"))
+        self.stop_button.setStyleSheet(theme_manager.get_transport_button_style("stop"))
+        self.record_button.setStyleSheet(theme_manager.get_transport_button_style("record"))
 
         grid_label = QLabel("Grid:")
         self.snap_checkbox = QCheckBox("Snap to Grid")
@@ -52,6 +57,7 @@ class MainWindow(QMainWindow):
         self.bpm_spinbox = QSpinBox()
         self.bpm_spinbox.setRange(60, 200)
         self.bpm_spinbox.setValue(120)
+        self.bpm_spinbox.setStyleSheet(theme_manager.get_spinbox_style())
 
         # Connect BPM changes
         self.bpm_spinbox.valueChanged.connect(self.on_bpm_changed)
@@ -67,6 +73,10 @@ class MainWindow(QMainWindow):
         self.add_audio_lane_button = QPushButton("Add Audio Lane")
         self.add_midi_lane_button = QPushButton("Add MIDI Lane")
 
+        # Style the lane control buttons
+        self.add_audio_lane_button.setStyleSheet(theme_manager.get_action_button_style())
+        self.add_midi_lane_button.setStyleSheet(theme_manager.get_action_button_style())
+
         self.add_audio_lane_button.clicked.connect(self.add_audio_lane)
         self.add_midi_lane_button.clicked.connect(self.add_midi_lane)
 
@@ -76,13 +86,26 @@ class MainWindow(QMainWindow):
 
         main_layout.addLayout(lane_controls_layout)
 
-        # Lanes area
+        # Lanes area - FIXED FOR PROPER TOP ALIGNMENT
         self.lanes_scroll = QScrollArea()
         self.lanes_widget = QWidget()
         self.lanes_layout = QVBoxLayout(self.lanes_widget)
 
+        # IMPORTANT: Set alignment to top and configure layout
+        self.lanes_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.lanes_layout.setSpacing(5)  # Add spacing between lanes
+        self.lanes_layout.setContentsMargins(5, 5, 5, 5)  # Add margins
+
+        # Add a stretch at the bottom to push all lanes to the top
+        self.lanes_layout.addStretch()
+
         self.lanes_scroll.setWidget(self.lanes_widget)
         self.lanes_scroll.setWidgetResizable(True)
+        self.lanes_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.lanes_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        # Apply styling to the lanes container
+        self.lanes_scroll.setStyleSheet(theme_manager.get_lanes_container_style())
 
         main_layout.addWidget(self.lanes_scroll)
 
@@ -115,7 +138,9 @@ class MainWindow(QMainWindow):
         lane_widget.remove_requested.connect(self.remove_lane)
 
         self.lane_widgets.append(lane_widget)
-        self.lanes_layout.addWidget(lane_widget)
+
+        insert_index = self.lanes_layout.count() - 1
+        self.lanes_layout.insertWidget(insert_index, lane_widget)
 
     def add_midi_lane(self):
         lane = self.project.add_lane("midi")
@@ -123,7 +148,9 @@ class MainWindow(QMainWindow):
         lane_widget.remove_requested.connect(self.remove_lane)
 
         self.lane_widgets.append(lane_widget)
-        self.lanes_layout.addWidget(lane_widget)
+
+        insert_index = self.lanes_layout.count() - 1
+        self.lanes_layout.insertWidget(insert_index, lane_widget)
 
     def remove_lane(self, lane_widget):
         self.project.remove_lane(lane_widget.lane)
@@ -164,12 +191,19 @@ class MainWindow(QMainWindow):
             widget.deleteLater()
         self.lane_widgets.clear()
 
+        # Remove the stretch item temporarily if it exists
+        if self.lanes_layout.count() > 0:
+            stretch_item = self.lanes_layout.takeAt(self.lanes_layout.count() - 1)
+
         # Recreate lane widgets
         for lane in self.project.lanes:
             lane_widget = LaneWidget(lane, self)
             lane_widget.remove_requested.connect(self.remove_lane)
             self.lane_widgets.append(lane_widget)
             self.lanes_layout.addWidget(lane_widget)
+
+        # Re-add the stretch item at the end
+        self.lanes_layout.addStretch()
 
         # Update BPM
         self.bpm_spinbox.setValue(int(self.project.bpm))
