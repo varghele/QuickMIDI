@@ -163,11 +163,11 @@ class ButtonStyles:
         }
     """
 
-    TRANSPORT_BUTTON_RECORD = """
+    TRANSPORT_BUTTON_HALT = """
         QPushButton {
-            background-color: #f44336;
+            background-color: #9E9E9E;
             color: white;
-            border: 1px solid #d32f2f;
+            border: 1px solid #757575;
             border-radius: 6px;
             padding: 8px;
             font-size: 18px;
@@ -176,10 +176,10 @@ class ButtonStyles:
             min-height: 35px;
         }
         QPushButton:hover {
-            background-color: #d32f2f;
+            background-color: #757575;
         }
         QPushButton:pressed {
-            background-color: #c62828;
+            background-color: #616161;
         }
     """
 

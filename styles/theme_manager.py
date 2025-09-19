@@ -48,8 +48,8 @@ class ThemeManager:
         """Get transport button style based on type"""
         if button_type == "stop":
             return self.button_styles.TRANSPORT_BUTTON_STOP
-        elif button_type == "record":
-            return self.button_styles.TRANSPORT_BUTTON_RECORD
+        elif button_type == "halt":
+            return self.button_styles.TRANSPORT_BUTTON_HALT
         elif button_type == "play":
             return self.button_styles.TRANSPORT_BUTTON_PLAY
         else:

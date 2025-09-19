@@ -5,7 +5,9 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction
 from core.project import Project
 from core.lane import AudioLane, MidiLane
+from core.playback_engine import PlaybackEngine
 from .lane_widget import LaneWidget
+from .master_timeline_widget import MasterTimelineContainer
 from utils.file_manager import FileManager
 from styles import theme_manager
 
@@ -15,6 +17,14 @@ class MainWindow(QMainWindow):
         self.project = Project()
         self.file_manager = FileManager()
         self.lane_widgets = []
+
+        # Initialize playback engine
+        self.playback_engine = PlaybackEngine()
+
+        self.playback_engine.position_changed.connect(self.on_playhead_position_changed)
+        self.playback_engine.playback_started.connect(self.on_playback_started)
+        self.playback_engine.playback_halted.connect(self.on_playback_halted)
+        self.playback_engine.playback_stopped.connect(self.on_playback_stopped)
 
         self.setWindowTitle("MIDI Track Creator")
         self.setGeometry(100, 100, 1200, 800)
@@ -32,13 +42,18 @@ class MainWindow(QMainWindow):
         transport_layout = QHBoxLayout()
 
         self.play_button = QPushButton("▶")  # Play triangle
-        self.stop_button = QPushButton("❚❚")  # Stop symbol (pause bars)
-        self.record_button = QPushButton("●")  # Record circle
+        self.halt_button = QPushButton("❚❚")  # Halt symbol (pause bars)
+        self.stop_button = QPushButton("⏹")  # Stop symbol (move to start)
 
         # Apply transport button styles
         self.play_button.setStyleSheet(theme_manager.get_transport_button_style("play"))
-        self.stop_button.setStyleSheet(theme_manager.get_transport_button_style("stop"))
-        self.record_button.setStyleSheet(theme_manager.get_transport_button_style("record"))
+        self.halt_button.setStyleSheet(theme_manager.get_transport_button_style("stop"))
+        self.stop_button.setStyleSheet(theme_manager.get_transport_button_style("halt"))
+
+        # Connect transport buttons
+        self.play_button.clicked.connect(self.on_play_clicked)
+        self.halt_button.clicked.connect(self.on_halt_clicked)
+        self.stop_button.clicked.connect(self.on_stop_clicked)
 
         grid_label = QLabel("Grid:")
         self.snap_checkbox = QCheckBox("Snap to Grid")
@@ -46,8 +61,8 @@ class MainWindow(QMainWindow):
         self.snap_checkbox.toggled.connect(self.on_global_snap_toggled)
 
         transport_layout.addWidget(self.play_button)
+        transport_layout.addWidget(self.halt_button)
         transport_layout.addWidget(self.stop_button)
-        transport_layout.addWidget(self.record_button)
         transport_layout.addWidget(grid_label)
         transport_layout.addWidget(self.snap_checkbox)
         transport_layout.addStretch()
@@ -85,6 +100,11 @@ class MainWindow(QMainWindow):
         lane_controls_layout.addStretch()
 
         main_layout.addLayout(lane_controls_layout)
+
+        # Master Timeline
+        self.master_timeline = MasterTimelineContainer()
+        self.master_timeline.playhead_moved.connect(self.on_playhead_moved_by_user)
+        main_layout.addWidget(self.master_timeline)
 
         # Lanes area - FIXED FOR PROPER TOP ALIGNMENT
         self.lanes_scroll = QScrollArea()
@@ -142,6 +162,9 @@ class MainWindow(QMainWindow):
         insert_index = self.lanes_layout.count() - 1
         self.lanes_layout.insertWidget(insert_index, lane_widget)
 
+        # Update playback engine with new lanes
+        self.playback_engine.set_lanes(self.project.lanes)
+
     def add_midi_lane(self):
         lane = self.project.add_lane("midi")
         lane_widget = LaneWidget(lane, self)
@@ -151,6 +174,9 @@ class MainWindow(QMainWindow):
 
         insert_index = self.lanes_layout.count() - 1
         self.lanes_layout.insertWidget(insert_index, lane_widget)
+
+        # Update playback engine with new lanes
+        self.playback_engine.set_lanes(self.project.lanes)
 
     def remove_lane(self, lane_widget):
         self.project.remove_lane(lane_widget.lane)
@@ -208,14 +234,52 @@ class MainWindow(QMainWindow):
         # Update BPM
         self.bpm_spinbox.setValue(int(self.project.bpm))
 
+    # Transport control methods
+    def on_play_clicked(self):
+        """Handle play button click"""
+        self.playback_engine.play()
+
+    def on_halt_clicked(self):
+        """Handle halt button click"""
+        self.playback_engine.halt()
+
+    def on_stop_clicked(self):
+        """Handle stop button click"""
+        self.playback_engine.stop()
+
+    # Playback engine event handlers
+    def on_playhead_position_changed(self, position: float):
+        """Update master timeline playhead position"""
+        self.master_timeline.set_playhead_position(position)
+
+    def on_playhead_moved_by_user(self, position: float):
+        """Handle user dragging the playhead"""
+        self.playback_engine.set_position(position)
+
+    def on_playback_started(self):
+        """Handle playback started"""
+        self.play_button.setText("⏸")  # Change to pause symbol
+
+    def on_playback_halted(self):
+        """Handle playback halted"""
+        self.play_button.setText("▶")  # Change back to play symbol
+
+    def on_playback_stopped(self):
+        """Handle playback stopped"""
+        self.play_button.setText("▶")  # Change back to play symbol
+
     def on_bpm_changed(self, bpm):
-        """Update BPM across all lanes"""
+        """Update BPM across all components"""
         self.project.bpm = float(bpm)
+        self.playback_engine.set_bpm(bpm)
+        self.master_timeline.set_bpm(bpm)
         for lane_widget in self.lane_widgets:
             lane_widget.update_bpm(bpm)
 
     def on_global_snap_toggled(self, checked):
         """Toggle snap to grid globally"""
+        self.playback_engine.set_snap_to_grid(checked)
+        self.master_timeline.set_snap_to_grid(checked)
         for lane_widget in self.lane_widgets:
             if hasattr(lane_widget, 'snap_checkbox'):
                 lane_widget.snap_checkbox.setChecked(checked)
