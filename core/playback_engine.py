@@ -26,6 +26,10 @@ class PlaybackEngine(QObject):
 
         self.lanes: List[Lane] = []
 
+    def set_song_structure(self, song_structure):
+        """Set song structure for BPM-aware playback"""
+        self.song_structure = song_structure
+
     def set_lanes(self, lanes: List[Lane]):
         """Set the lanes to be controlled by this engine"""
         self.lanes = lanes
@@ -70,13 +74,20 @@ class PlaybackEngine(QObject):
         self.position_changed.emit(self.current_position)
 
     def update_playback(self):
-        """Update playback position (called by timer)"""
+        """Update playback position with dynamic BPM"""
         if self.is_playing:
-            # Advance by timer interval (16ms = 0.016s)
-            self.current_position += 0.016
+            # Get current BPM from song structure
+            if hasattr(self, 'song_structure') and self.song_structure:
+                current_bpm = self.song_structure.get_bpm_at_time(self.current_position)
+                # Adjust advancement based on current BPM
+                bpm_factor = current_bpm / 120.0  # Normalize to 120 BPM
+                advancement = 0.016 * bpm_factor
+            else:
+                advancement = 0.016
+
+            self.current_position += advancement
             self.position_changed.emit(self.current_position)
 
-            # TODO: Trigger MIDI events and audio playback based on current position
             self.process_lane_events()
 
     def process_lane_events(self):

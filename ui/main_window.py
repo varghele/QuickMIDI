@@ -150,10 +150,43 @@ class MainWindow(QMainWindow):
         load_action.setShortcut("Ctrl+O")
         load_action.triggered.connect(self.load_project)
 
+        # Add song structure loading
+        load_structure_action = QAction("Load Song Structure...", self)
+        load_structure_action.setShortcut("Ctrl+Shift+O")
+        load_structure_action.triggered.connect(self.load_song_structure)
+
         file_menu.addAction(save_action)
         file_menu.addAction(save_as_action)
         file_menu.addSeparator()
         file_menu.addAction(load_action)
+        file_menu.addAction(load_structure_action)
+
+    def load_song_structure(self):
+        """Load song structure from CSV file"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Load Song Structure", "", "CSV Files (*.csv)")
+
+        if file_path:
+            try:
+                from core.song_structure import SongStructure
+                song_structure = SongStructure()
+
+                if song_structure.load_from_csv(file_path):
+                    self.project.song_structure = song_structure
+
+                    # Update master timeline with song structure
+                    self.master_timeline.timeline_widget.set_song_structure(song_structure)
+
+                    # Update playback engine
+                    self.playback_engine.set_song_structure(song_structure)
+
+                    QMessageBox.information(self, "Success",
+                                            f"Loaded song structure with {len(song_structure.parts)} parts")
+                else:
+                    QMessageBox.critical(self, "Error", "Failed to load song structure")
+
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to load song structure: {str(e)}")
 
     def add_audio_lane(self):
         lane = self.project.add_lane("audio")
@@ -285,8 +318,13 @@ class MainWindow(QMainWindow):
                 lane_widget.set_zoom_factor(zoom_factor)
 
     def on_playhead_position_changed(self, position: float):
-        """Update playhead position across all timelines"""
+        """Update playhead position and BPM across all timelines"""
         self.master_timeline.set_playhead_position(position)
+
+        # Update BPM based on song structure
+        if hasattr(self.project, 'song_structure') and self.project.song_structure:
+            current_bpm = self.project.song_structure.get_bpm_at_time(position)
+            self.bpm_spinbox.setValue(int(current_bpm))
 
         # Update playhead in all lane timelines
         for lane_widget in self.lane_widgets:

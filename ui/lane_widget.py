@@ -26,7 +26,7 @@ class TimelineWidget(QWidget):
         self.max_zoom = 5.0
 
         self.setMinimumHeight(60)
-        self.setMinimumWidth(2000)  # Wide timeline for scrolling
+        self.update_timeline_width()
         self.setStyleSheet("background-color: #f8f8f8; border: 1px solid #ddd;")
 
     def update_timeline_width(self):
@@ -34,6 +34,51 @@ class TimelineWidget(QWidget):
         self.pixels_per_beat = self.base_pixels_per_beat * self.zoom_factor
         new_width = max(2000, int(128 * self.pixels_per_beat))
         self.setMinimumWidth(new_width)
+
+    def draw_grid(self, painter, width, height):
+        """Draw the basic grid - can be overridden by subclasses"""
+        # Draw beat lines (every beat)
+        beat_pen = QPen(QColor("#cccccc"), 1)
+        bar_pen = QPen(QColor("#999999"), 2)
+
+        # Draw vertical grid lines for beats
+        x = 0.0
+        beat_count = 0
+        while x < width:
+            if beat_count % 4 == 0:  # Bar line (every 4 beats)
+                painter.setPen(bar_pen)
+            else:  # Beat line
+                painter.setPen(beat_pen)
+
+            x_int = int(x)
+            painter.drawLine(x_int, 0, x_int, height)
+            x += self.pixels_per_beat
+            beat_count += 1
+
+        # Draw time markers
+        painter.setPen(QPen(QColor("#666666"), 1))
+        font = painter.font()
+        font.setPointSize(8)
+        painter.setFont(font)
+
+        x = 0.0
+        bar_number = 1
+        while x < width:
+            if x > 0:  # Don't draw at x=0
+                time_seconds = (bar_number - 1) * 4 * (60.0 / self.bpm)
+                x_int = int(x)
+                painter.drawText(x_int + 2, 12, f"Bar {bar_number} ({time_seconds:.1f}s)")
+            x += self.pixels_per_beat * 4  # Every 4 beats (1 bar)
+            bar_number += 1
+
+    def draw_playhead(self, painter, width, height):
+        """Draw playhead cursor - can be overridden by subclasses"""
+        playhead_x = int(self.playhead_position * self.pixels_per_beat * (self.bpm / 60.0))
+
+        if 0 <= playhead_x <= width:
+            playhead_pen = QPen(QColor("#FF4444"), 2)
+            painter.setPen(playhead_pen)
+            painter.drawLine(playhead_x, 0, playhead_x, height)
 
     def wheelEvent(self, event: QWheelEvent):
         """Handle mouse wheel events for zooming"""
@@ -101,60 +146,20 @@ class TimelineWidget(QWidget):
         self.update()
 
     def paintEvent(self, event):
-        """Draw the grid lines"""
+        """Draw the timeline - can be extended by subclasses"""
         super().paintEvent(event)
 
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # Draw beat lines (every beat)
-        beat_pen = QPen(QColor("#cccccc"), 1)
-        painter.setPen(beat_pen)
-
         width = self.width()
         height = self.height()
 
-        # Draw vertical grid lines for beats
-        x = 0
-        beat_count = 0
-        while x < width:
-            if beat_count % 4 == 0:  # Bar line (every 4 beats)
-                bar_pen = QPen(QColor("#999999"), 2)
-                painter.setPen(bar_pen)
-            else:  # Beat line
-                painter.setPen(beat_pen)
+        # Draw grid (can be overridden)
+        self.draw_grid(painter, width, height)
 
-            # Convert float to int for drawLine
-            x_int = int(x)
-            painter.drawLine(x_int, 0, x_int, height)
-            x += self.pixels_per_beat
-            beat_count += 1
-
-        # Draw time markers
-        painter.setPen(QPen(QColor("#666666"), 1))
-        font = painter.font()
-        font.setPointSize(8)
-        painter.setFont(font)
-
-        x = 0.0  # Start as float for calculations
-        bar_number = 1
-        while x < width:
-            if x > 0:  # Don't draw at x=0
-                time_seconds = (bar_number - 1) * 4 * (60.0 / self.bpm)
-                # Convert float to int for drawText
-                x_int = int(x)
-                painter.drawText(x_int + 2, 12, f"Bar {bar_number} ({time_seconds:.1f}s)")
-            x += self.pixels_per_beat * 4  # Every 4 beats (1 bar)
-            bar_number += 1
-
-        # Draw playhead cursor
-        playhead_x = int(self.playhead_position * self.pixels_per_beat * (self.bpm / 60.0))
-
-        if 0 <= playhead_x <= width:
-            # Playhead line
-            playhead_pen = QPen(QColor("#FF4444"), 2)
-            painter.setPen(playhead_pen)
-            painter.drawLine(playhead_x, 0, playhead_x, height)
+        # Draw playhead (can be overridden)
+        self.draw_playhead(painter, width, height)
 
 
 class LaneWidget(QFrame):
