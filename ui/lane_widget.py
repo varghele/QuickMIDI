@@ -17,7 +17,9 @@ class TimelineWidget(QWidget):
         self.bpm = 120.0
         self.pixels_per_beat = 60
         self.snap_to_grid = True
+        self.playhead_position = 0.0  # Position in seconds
         self.setMinimumHeight(60)
+        self.setMinimumWidth(2000)  # Wide timeline for scrolling
         self.setStyleSheet("background-color: #f8f8f8; border: 1px solid #ddd;")
 
     def set_bpm(self, bpm):
@@ -33,6 +35,11 @@ class TimelineWidget(QWidget):
     def set_snap_to_grid(self, snap):
         """Enable/disable snap to grid"""
         self.snap_to_grid = snap
+
+    def set_playhead_position(self, position: float):
+        """Set playhead position and update display"""
+        self.playhead_position = position
+        self.update()
 
     def paintEvent(self, event):
         """Draw the grid lines"""
@@ -77,9 +84,19 @@ class TimelineWidget(QWidget):
             x += self.pixels_per_beat * 4  # Every 4 beats (1 bar)
             bar_number += 1
 
+        # Draw playhead cursor
+        playhead_x = int(self.playhead_position * self.pixels_per_beat * (self.bpm / 60.0))
+
+        if 0 <= playhead_x <= width:
+            # Playhead line
+            playhead_pen = QPen(QColor("#FF4444"), 2)
+            painter.setPen(playhead_pen)
+            painter.drawLine(playhead_x, 0, playhead_x, height)
+
 
 class LaneWidget(QFrame):
     remove_requested = pyqtSignal(object)
+    scroll_position_changed = pyqtSignal(int)  # Emits horizontal scroll position
 
     def __init__(self, lane: Lane, parent=None):
         super().__init__(parent)
@@ -183,7 +200,7 @@ class LaneWidget(QFrame):
         # Timeline section (right side) - scrollable
         self.timeline_scroll = QScrollArea()
         self.timeline_widget = TimelineWidget()
-        self.timeline_widget.setMinimumWidth(2000)  # Wide timeline
+        #self.timeline_widget.setMinimumWidth(2000)  # Wide timeline
 
         if isinstance(self.lane, MidiLane):
             self.setup_midi_timeline()
@@ -195,6 +212,10 @@ class LaneWidget(QFrame):
         self.timeline_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.timeline_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
+        # Connect scroll events
+        self.timeline_scroll.horizontalScrollBar().valueChanged.connect(
+            self.scroll_position_changed.emit)
+
         main_layout.addWidget(self.timeline_scroll, 1)
 
     def setup_midi_controls(self, layout):
@@ -204,24 +225,24 @@ class LaneWidget(QFrame):
         self.channel_spinbox.setRange(1, 16)
         self.channel_spinbox.setValue(self.lane.midi_channel)
         self.channel_spinbox.valueChanged.connect(self.on_channel_changed)
-        # Style the channel spinbox
-        self.channel_spinbox.setStyleSheet(theme_manager.get_spinbox_style())
         layout.addWidget(self.channel_spinbox)
 
         # Channel name
         self.channel_name_edit = QLineEdit(self.lane.channel_name)
         self.channel_name_edit.setPlaceholderText("Channel Name")
         self.channel_name_edit.textChanged.connect(self.on_channel_name_changed)
-        # Style the channel name edit
-        self.channel_name_edit.setStyleSheet(theme_manager.get_line_edit_style())
         layout.addWidget(self.channel_name_edit)
 
         # Add MIDI block button
         self.add_block_button = QPushButton("Add Block")
         self.add_block_button.clicked.connect(self.add_midi_block)
-        # Style the add block button
-        self.add_block_button.setStyleSheet(theme_manager.get_action_button_style())
         layout.addWidget(self.add_block_button)
+
+        # Apply styles
+        self.channel_spinbox.setStyleSheet(theme_manager.get_spinbox_style())
+        self.channel_name_edit.setStyleSheet(theme_manager.get_line_edit_style())
+        self.add_block_button.setStyleSheet(theme_manager.get_action_button_style())
+
 
     def setup_audio_controls(self, layout):
         # Load audio file button
@@ -237,6 +258,18 @@ class LaneWidget(QFrame):
         self.volume_spinbox.valueChanged.connect(self.on_volume_changed)
         layout.addWidget(self.volume_spinbox)
         layout.addStretch()  # Push controls to the left
+
+        # Apply styles
+        self.load_audio_button.setStyleSheet(theme_manager.get_action_button_style())
+        self.volume_spinbox.setStyleSheet(theme_manager.get_spinbox_style())
+
+    def set_playhead_position(self, position: float):
+        """Set playhead position for this lane's timeline"""
+        self.timeline_widget.set_playhead_position(position)
+
+    def sync_scroll_position(self, position: int):
+        """Sync scroll position with master timeline"""
+        self.timeline_scroll.horizontalScrollBar().setValue(position)
 
     def setup_midi_timeline(self):
         # Create MIDI block widgets for existing blocks
@@ -263,7 +296,8 @@ class LaneWidget(QFrame):
         """Update BPM for grid calculations"""
         self.timeline_widget.set_bpm(bpm)
         for block_widget in self.midi_block_widgets:
-            block_widget.update_position()
+            if hasattr(block_widget, 'update_position'):
+                block_widget.update_position()
 
     def dragEnterEvent(self, event: QDragEnterEvent):
         if isinstance(self.lane, AudioLane) and event.mimeData().hasUrls():
@@ -356,16 +390,6 @@ class LaneWidget(QFrame):
             self.timeline_widget.set_snap_to_grid(checked)
             for block_widget in self.midi_block_widgets:
                 block_widget.set_snap_to_grid(checked)
-
-    #def update_mute_button_style(self):
-    #    """Update mute button appearance based on state"""
-    #    style = theme_manager.get_mute_button_style(self.mute_button.isChecked())
-    #    self.mute_button.setStyleSheet(style)
-
-    #def update_solo_button_style(self):
-    #    """Update solo button appearance based on state"""
-    #    style = theme_manager.get_solo_button_style(self.solo_button.isChecked())
-    #    self.solo_button.setStyleSheet(style)
 
     def update_mute_button_style(self):
         """Update mute button appearance based on state"""

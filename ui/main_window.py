@@ -104,6 +104,8 @@ class MainWindow(QMainWindow):
         # Master Timeline
         self.master_timeline = MasterTimelineContainer()
         self.master_timeline.playhead_moved.connect(self.on_playhead_moved_by_user)
+
+        self.master_timeline.scroll_position_changed.connect(self.sync_all_timelines_scroll)
         main_layout.addWidget(self.master_timeline)
 
         # Lanes area - FIXED FOR PROPER TOP ALIGNMENT
@@ -156,6 +158,7 @@ class MainWindow(QMainWindow):
         lane = self.project.add_lane("audio")
         lane_widget = LaneWidget(lane, self)
         lane_widget.remove_requested.connect(self.remove_lane)
+        lane_widget.scroll_position_changed.connect(self.sync_master_timeline_scroll)
 
         self.lane_widgets.append(lane_widget)
 
@@ -169,6 +172,7 @@ class MainWindow(QMainWindow):
         lane = self.project.add_lane("midi")
         lane_widget = LaneWidget(lane, self)
         lane_widget.remove_requested.connect(self.remove_lane)
+        lane_widget.scroll_position_changed.connect(self.sync_master_timeline_scroll)
 
         self.lane_widgets.append(lane_widget)
 
@@ -247,10 +251,28 @@ class MainWindow(QMainWindow):
         """Handle stop button click"""
         self.playback_engine.stop()
 
-    # Playback engine event handlers
+    def sync_all_timelines_scroll(self, position: int):
+        """Synchronize scroll position across all lane timelines"""
+        for lane_widget in self.lane_widgets:
+            lane_widget.sync_scroll_position(position)
+
+    def sync_master_timeline_scroll(self, position: int):
+        """Sync master timeline scroll when lane timeline is scrolled"""
+        self.master_timeline.sync_scroll_position(position)
+
+        # Sync all other lane timelines
+        sender = self.sender()
+        for lane_widget in self.lane_widgets:
+            if lane_widget != sender:
+                lane_widget.sync_scroll_position(position)
+
     def on_playhead_position_changed(self, position: float):
-        """Update master timeline playhead position"""
+        """Update playhead position across all timelines"""
         self.master_timeline.set_playhead_position(position)
+
+        # Update playhead in all lane timelines
+        for lane_widget in self.lane_widgets:
+            lane_widget.set_playhead_position(position)
 
     def on_playhead_moved_by_user(self, position: float):
         """Handle user dragging the playhead"""

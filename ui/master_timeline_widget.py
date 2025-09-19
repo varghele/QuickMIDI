@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLabel
+from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLabel, QScrollArea
 from PyQt6.QtCore import Qt, pyqtSignal, QPoint
 from PyQt6.QtGui import QPainter, QPen, QColor, QMouseEvent, QPolygon
 from .lane_widget import TimelineWidget
@@ -14,6 +14,7 @@ class MasterTimelineWidget(TimelineWidget):
         self.playhead_position = 0.0  # Position in seconds
         self.dragging_playhead = False
         self.setMinimumHeight(40)
+        self.setMinimumWidth(2000)  # Wide timeline for scrolling
         self.setStyleSheet("""
             MasterTimelineWidget {
                 background-color: #e8e8e8;
@@ -27,6 +28,17 @@ class MasterTimelineWidget(TimelineWidget):
         self.playhead_position = position
         self.update()
 
+        # Auto-scroll to keep playhead visible
+        self.ensure_playhead_visible()
+
+    def ensure_playhead_visible(self):
+        """Ensure playhead is visible by scrolling if necessary"""
+        if hasattr(self.parent(), 'ensureWidgetVisible'):
+            playhead_x = int(self.playhead_position * self.pixels_per_beat * (self.bpm / 60.0))
+            # Create a small rectangle around the playhead
+            margin = 100  # pixels
+            self.parent().ensureVisible(playhead_x, 0, margin, self.height())
+
     def paintEvent(self, event):
         """Draw the timeline grid and playhead"""
         super().paintEvent(event)  # Draw the grid from parent class
@@ -37,22 +49,21 @@ class MasterTimelineWidget(TimelineWidget):
         # Draw playhead
         playhead_x = int(self.playhead_position * self.pixels_per_beat * (self.bpm / 60.0))
 
-        if 0 <= playhead_x <= self.width():
-            # Playhead line
-            playhead_pen = QPen(QColor("#FF4444"), 3)
-            painter.setPen(playhead_pen)
-            painter.drawLine(playhead_x, 0, playhead_x, self.height())
+        # Draw playhead line (full height)
+        playhead_pen = QPen(QColor("#FF4444"), 3)
+        painter.setPen(playhead_pen)
+        painter.drawLine(playhead_x, 0, playhead_x, self.height())
 
-            # Playhead triangle at top - FIXED: Use QPolygon instead of list
-            triangle_size = 8
-            triangle = QPolygon([
-                QPoint(playhead_x, 0),
-                QPoint(playhead_x - triangle_size, triangle_size),
-                QPoint(playhead_x + triangle_size, triangle_size)
-            ])
+        # Playhead triangle at top
+        triangle_size = 8
+        triangle = QPolygon([
+            QPoint(playhead_x, 0),
+            QPoint(playhead_x - triangle_size, triangle_size),
+            QPoint(playhead_x + triangle_size, triangle_size)
+        ])
 
-            painter.setBrush(QColor("#FF4444"))
-            painter.drawPolygon(triangle) # Now uses proper QPolygon
+        painter.setBrush(QColor("#FF4444"))
+        painter.drawPolygon(triangle)
 
         # Draw time display
         painter.setPen(QPen(QColor("#333333"), 1))
@@ -100,6 +111,7 @@ class MasterTimelineContainer(QWidget):
     """Container for master timeline with label"""
 
     playhead_moved = pyqtSignal(float)
+    scroll_position_changed = pyqtSignal(int) # Emits horizontal scroll position
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -108,6 +120,8 @@ class MasterTimelineContainer(QWidget):
     def setup_ui(self):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        self.setMinimumHeight(60)  # Instead of setFixedHeight
+        self.setMaximumHeight(65.)  # Optional: set a maximum height too
 
         # Timeline label (matches lane control width)
         timeline_label = QWidget()
@@ -116,12 +130,24 @@ class MasterTimelineContainer(QWidget):
         label_layout.addWidget(QLabel("Master Timeline"))
         label_layout.addStretch()
 
+        # Scrollable timeline area
+        self.timeline_scroll = QScrollArea()
         # Master timeline widget
         self.timeline_widget = MasterTimelineWidget()
         self.timeline_widget.playhead_moved.connect(self.playhead_moved.emit)
 
+        self.timeline_scroll.setWidget(self.timeline_widget)
+        self.timeline_scroll.setWidgetResizable(False)
+
+        self.timeline_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.timeline_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        # Connect scroll events
+        self.timeline_scroll.horizontalScrollBar().valueChanged.connect(
+            self.scroll_position_changed.emit)
+
         layout.addWidget(timeline_label)
-        layout.addWidget(self.timeline_widget, 1)
+        layout.addWidget(self.timeline_scroll, 1)
 
     def set_bpm(self, bpm: float):
         """Set BPM for timeline calculations"""
@@ -134,3 +160,7 @@ class MasterTimelineContainer(QWidget):
     def set_snap_to_grid(self, snap: bool):
         """Set snap to grid for playhead"""
         self.timeline_widget.set_snap_to_grid(snap)
+
+    def sync_scroll_position(self, position: int):
+        """Sync scroll position with other timelines"""
+        self.timeline_scroll.horizontalScrollBar().setValue(position)
