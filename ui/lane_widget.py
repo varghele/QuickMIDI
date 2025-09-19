@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QLabel,
                              QFrame, QFileDialog, QMessageBox, QComboBox,
                              QScrollArea)
 from PyQt6.QtCore import Qt, pyqtSignal, QMimeData, QTimer
-from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QPalette, QPainter, QPen, QColor
+from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QPalette, QPainter, QPen, QColor, QWheelEvent
 from core.lane import Lane, AudioLane, MidiLane
 from .midi_block_widget import MidiBlockWidget
 from styles import theme_manager
@@ -12,15 +12,74 @@ from styles import theme_manager
 class TimelineWidget(QWidget):
     """Custom timeline widget with grid drawing and snap functionality"""
 
+    zoom_changed = pyqtSignal(float)  # New signal for zoom changes
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.bpm = 120.0
-        self.pixels_per_beat = 60
+        self.zoom_factor = 1.0
+        self.base_pixels_per_beat = 60
+        self.pixels_per_beat = self.base_pixels_per_beat
         self.snap_to_grid = True
         self.playhead_position = 0.0  # Position in seconds
+        self.min_zoom = 0.1
+        self.max_zoom = 5.0
+
         self.setMinimumHeight(60)
         self.setMinimumWidth(2000)  # Wide timeline for scrolling
         self.setStyleSheet("background-color: #f8f8f8; border: 1px solid #ddd;")
+
+    def update_timeline_width(self):
+        """Update timeline width based on zoom level"""
+        self.pixels_per_beat = self.base_pixels_per_beat * self.zoom_factor
+        new_width = max(2000, int(128 * self.pixels_per_beat))
+        self.setMinimumWidth(new_width)
+
+    def wheelEvent(self, event: QWheelEvent):
+        """Handle mouse wheel events for zooming"""
+        if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            # Shift + wheel = zoom
+            delta = event.angleDelta().y()
+            zoom_in = delta > 0
+
+            # Get mouse position for zoom center
+            mouse_x = event.position().x()
+
+            # Calculate time position at mouse cursor before zoom
+            time_at_mouse = mouse_x / self.pixels_per_beat * (60.0 / self.bpm)
+
+            # Apply zoom
+            old_zoom = self.zoom_factor
+            if zoom_in:
+                self.zoom_factor = min(self.max_zoom, self.zoom_factor * 1.2)
+            else:
+                self.zoom_factor = max(self.min_zoom, self.zoom_factor / 1.2)
+
+            if self.zoom_factor != old_zoom:
+                self.update_timeline_width()
+                self.zoom_changed.emit(self.zoom_factor)
+
+                # Maintain mouse position after zoom
+                new_mouse_x = time_at_mouse * self.pixels_per_beat / (60.0 / self.bpm)
+                scroll_offset = new_mouse_x - mouse_x
+
+                # Notify parent scroll area to adjust position
+                if hasattr(self.parent(), 'horizontalScrollBar'):
+                    current_scroll = self.parent().horizontalScrollBar().value()
+                    self.parent().horizontalScrollBar().setValue(int(current_scroll + scroll_offset))
+
+                self.update()
+
+            event.accept()
+        else:
+            # Normal wheel = scroll horizontally
+            super().wheelEvent(event)
+
+    def set_zoom_factor(self, zoom_factor: float):
+        """Set zoom factor externally"""
+        self.zoom_factor = zoom_factor
+        self.update_timeline_width()
+        self.update()
 
     def set_bpm(self, bpm):
         """Set BPM for grid calculations"""
@@ -65,7 +124,9 @@ class TimelineWidget(QWidget):
             else:  # Beat line
                 painter.setPen(beat_pen)
 
-            painter.drawLine(x, 0, x, height)
+            # Convert float to int for drawLine
+            x_int = int(x)
+            painter.drawLine(x_int, 0, x_int, height)
             x += self.pixels_per_beat
             beat_count += 1
 
@@ -75,12 +136,14 @@ class TimelineWidget(QWidget):
         font.setPointSize(8)
         painter.setFont(font)
 
-        x = 0
+        x = 0.0  # Start as float for calculations
         bar_number = 1
         while x < width:
             if x > 0:  # Don't draw at x=0
                 time_seconds = (bar_number - 1) * 4 * (60.0 / self.bpm)
-                painter.drawText(x + 2, 12, f"Bar {bar_number} ({time_seconds:.1f}s)")
+                # Convert float to int for drawText
+                x_int = int(x)
+                painter.drawText(x_int + 2, 12, f"Bar {bar_number} ({time_seconds:.1f}s)")
             x += self.pixels_per_beat * 4  # Every 4 beats (1 bar)
             bar_number += 1
 
@@ -97,6 +160,7 @@ class TimelineWidget(QWidget):
 class LaneWidget(QFrame):
     remove_requested = pyqtSignal(object)
     scroll_position_changed = pyqtSignal(int)  # Emits horizontal scroll position
+    zoom_changed = pyqtSignal(float)  # Signal for zoom changes
 
     def __init__(self, lane: Lane, parent=None):
         super().__init__(parent)
@@ -200,6 +264,7 @@ class LaneWidget(QFrame):
         # Timeline section (right side) - scrollable
         self.timeline_scroll = QScrollArea()
         self.timeline_widget = TimelineWidget()
+        self.timeline_widget.zoom_changed.connect(self.zoom_changed.emit)  # Connect zoom signal
         #self.timeline_widget.setMinimumWidth(2000)  # Wide timeline
 
         if isinstance(self.lane, MidiLane):
@@ -266,6 +331,17 @@ class LaneWidget(QFrame):
     def set_playhead_position(self, position: float):
         """Set playhead position for this lane's timeline"""
         self.timeline_widget.set_playhead_position(position)
+
+    def set_zoom_factor(self, zoom_factor: float):
+        """Set zoom factor for this lane's timeline"""
+        self.timeline_widget.set_zoom_factor(zoom_factor)
+
+        # Update MIDI block positions
+        for block_widget in self.midi_block_widgets:
+            if hasattr(block_widget, 'set_grid_size'):
+                block_widget.set_grid_size(self.timeline_widget.pixels_per_beat)
+            if hasattr(block_widget, 'update_position'):
+                block_widget.update_position()
 
     def sync_scroll_position(self, position: int):
         """Sync scroll position with master timeline"""

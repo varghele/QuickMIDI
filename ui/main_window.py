@@ -106,6 +106,7 @@ class MainWindow(QMainWindow):
         self.master_timeline.playhead_moved.connect(self.on_playhead_moved_by_user)
 
         self.master_timeline.scroll_position_changed.connect(self.sync_all_timelines_scroll)
+        self.master_timeline.zoom_changed.connect(self.sync_all_timelines_zoom)  # New connection
         main_layout.addWidget(self.master_timeline)
 
         # Lanes area - FIXED FOR PROPER TOP ALIGNMENT
@@ -159,6 +160,7 @@ class MainWindow(QMainWindow):
         lane_widget = LaneWidget(lane, self)
         lane_widget.remove_requested.connect(self.remove_lane)
         lane_widget.scroll_position_changed.connect(self.sync_master_timeline_scroll)
+        lane_widget.zoom_changed.connect(self.sync_master_timeline_zoom)  # New connection
 
         self.lane_widgets.append(lane_widget)
 
@@ -173,6 +175,7 @@ class MainWindow(QMainWindow):
         lane_widget = LaneWidget(lane, self)
         lane_widget.remove_requested.connect(self.remove_lane)
         lane_widget.scroll_position_changed.connect(self.sync_master_timeline_scroll)
+        lane_widget.zoom_changed.connect(self.sync_master_timeline_zoom)  # New connection
 
         self.lane_widgets.append(lane_widget)
 
@@ -256,6 +259,11 @@ class MainWindow(QMainWindow):
         for lane_widget in self.lane_widgets:
             lane_widget.sync_scroll_position(position)
 
+    def sync_all_timelines_zoom(self, zoom_factor: float):
+        """Synchronize zoom level across all lane timelines"""
+        for lane_widget in self.lane_widgets:
+            lane_widget.set_zoom_factor(zoom_factor)
+
     def sync_master_timeline_scroll(self, position: int):
         """Sync master timeline scroll when lane timeline is scrolled"""
         self.master_timeline.sync_scroll_position(position)
@@ -265,6 +273,16 @@ class MainWindow(QMainWindow):
         for lane_widget in self.lane_widgets:
             if lane_widget != sender:
                 lane_widget.sync_scroll_position(position)
+
+    def sync_master_timeline_zoom(self, zoom_factor: float):
+        """Sync master timeline zoom when lane timeline is zoomed"""
+        self.master_timeline.set_zoom_factor(zoom_factor)
+
+        # Sync all other lane timelines
+        sender = self.sender()
+        for lane_widget in self.lane_widgets:
+            if lane_widget != sender:
+                lane_widget.set_zoom_factor(zoom_factor)
 
     def on_playhead_position_changed(self, position: float):
         """Update playhead position across all timelines"""
