@@ -24,30 +24,82 @@ class TimelineWidget(QWidget):
         self.playhead_position = 0.0  # Position in seconds
         self.min_zoom = 0.1
         self.max_zoom = 5.0
+        self.song_structure = None
 
         self.setMinimumHeight(60)
         self.update_timeline_width()
         self.setStyleSheet("background-color: #f8f8f8; border: 1px solid #ddd;")
 
     def update_timeline_width(self):
-        """Update timeline width based on zoom level"""
+        """Update timeline width based on zoom level and song structure"""
         self.pixels_per_beat = self.base_pixels_per_beat * self.zoom_factor
-        new_width = max(2000, int(128 * self.pixels_per_beat))
+
+        # Check if we have song structure to calculate width
+        if (hasattr(self, 'song_structure') and self.song_structure and
+                hasattr(self.song_structure, 'parts') and self.song_structure.parts):
+            try:
+                total_duration = self.song_structure.get_total_duration()
+                avg_bpm = sum(part.bpm for part in self.song_structure.parts) / len(self.song_structure.parts)
+                total_beats = (total_duration / 60.0) * avg_bpm
+                new_width = max(2000, int(total_beats * self.pixels_per_beat))
+            except (AttributeError, ZeroDivisionError, TypeError):
+                new_width = max(2000, int(128 * self.pixels_per_beat))
+        else:
+            new_width = max(2000, int(128 * self.pixels_per_beat))
+
         self.setMinimumWidth(new_width)
 
     def draw_grid(self, painter, width, height):
-        """Draw the basic grid - can be overridden by subclasses"""
-        # Draw beat lines (every beat)
+        """Draw grid with song structure awareness"""
+        if (hasattr(self, 'song_structure') and self.song_structure and
+            hasattr(self.song_structure, 'parts') and self.song_structure.parts):
+            try:
+                # Draw song structure-aware grid
+                self.draw_song_structure_grid(painter, width, height)
+            except Exception as e:
+                print(f"Error drawing song structure grid: {e}")
+                # Fall back to basic grid
+                self.draw_basic_grid(painter, width, height)
+        else:
+            # Draw basic grid
+            self.draw_basic_grid(painter, width, height)
+
+    def draw_song_structure_grid(self, painter, width, height):
+        """Draw grid based on song structure"""
+        beat_pen = QPen(QColor("#cccccc"), 1)
+        bar_pen = QPen(QColor("#999999"), 2)
+        part_pen = QPen(QColor("#666666"), 3)  # Thicker line for part boundaries
+
+        for part in self.song_structure.parts:
+            start_x = self.time_to_pixel(part.start_time)
+            end_x = self.time_to_pixel(part.start_time + part.duration)
+
+            # Draw part boundary
+            if 0 <= start_x <= width:
+                painter.setPen(part_pen)
+                painter.drawLine(int(start_x), 0, int(start_x), height)
+
+            # Draw bar lines within this part
+            for bar in range(part.num_bars + 1):
+                if part.num_bars > 0:
+                    bar_time = part.start_time + (bar / part.num_bars) * part.duration
+                    bar_x = self.time_to_pixel(bar_time)
+
+                    if 0 <= bar_x <= width:
+                        painter.setPen(bar_pen)
+                        painter.drawLine(int(bar_x), 0, int(bar_x), height)
+
+    def draw_basic_grid(self, painter, width, height):
+        """Draw basic grid without song structure"""
         beat_pen = QPen(QColor("#cccccc"), 1)
         bar_pen = QPen(QColor("#999999"), 2)
 
-        # Draw vertical grid lines for beats
         x = 0.0
         beat_count = 0
         while x < width:
-            if beat_count % 4 == 0:  # Bar line (every 4 beats)
+            if beat_count % 4 == 0:
                 painter.setPen(bar_pen)
-            else:  # Beat line
+            else:
                 painter.setPen(beat_pen)
 
             x_int = int(x)
@@ -64,21 +116,45 @@ class TimelineWidget(QWidget):
         x = 0.0
         bar_number = 1
         while x < width:
-            if x > 0:  # Don't draw at x=0
-                time_seconds = (bar_number - 1) * 4 * (60.0 / self.bpm)
+            if x > 0:
+                current_bpm = self.get_current_bpm()
+                time_seconds = (bar_number - 1) * 4 * (60.0 / current_bpm)
                 x_int = int(x)
                 painter.drawText(x_int + 2, 12, f"Bar {bar_number} ({time_seconds:.1f}s)")
-            x += self.pixels_per_beat * 4  # Every 4 beats (1 bar)
+            x += self.pixels_per_beat * 4
             bar_number += 1
 
-    def draw_playhead(self, painter, width, height):
-        """Draw playhead cursor - can be overridden by subclasses"""
-        playhead_x = int(self.playhead_position * self.pixels_per_beat * (self.bpm / 60.0))
+    def time_to_pixel(self, time: float) -> float:
+        """Convert time to pixel position with song structure awareness"""
+        try:
+            if (hasattr(self, 'song_structure') and self.song_structure and
+                    hasattr(self.song_structure, 'get_bpm_at_time')):
+                current_bpm = self.song_structure.get_bpm_at_time(time)
+                beats = (time / 60.0) * current_bpm
+                return beats * self.pixels_per_beat / (current_bpm / 60.0)
+            else:
+                beats = (time / 60.0) * self.bpm
+                return beats * self.pixels_per_beat / (self.bpm / 60.0)
+        except (AttributeError, ZeroDivisionError, TypeError):
+            beats = (time / 60.0) * self.bpm
+            return beats * self.pixels_per_beat / (self.bpm / 60.0)
 
-        if 0 <= playhead_x <= width:
-            playhead_pen = QPen(QColor("#FF4444"), 2)
-            painter.setPen(playhead_pen)
-            painter.drawLine(playhead_x, 0, playhead_x, height)
+    def draw_playhead(self, painter, width, height):
+        """Draw playhead with song structure awareness"""
+        try:
+            playhead_x = int(self.time_to_pixel(self.playhead_position))
+
+            if 0 <= playhead_x <= width:
+                playhead_pen = QPen(QColor("#FF4444"), 2)
+                painter.setPen(playhead_pen)
+                painter.drawLine(playhead_x, 0, playhead_x, height)
+        except (AttributeError, TypeError):
+            # Fallback to basic calculation
+            playhead_x = int(self.playhead_position * self.pixels_per_beat * (self.bpm / 60.0))
+            if 0 <= playhead_x <= width:
+                playhead_pen = QPen(QColor("#FF4444"), 2)
+                painter.setPen(playhead_pen)
+                painter.drawLine(playhead_x, 0, playhead_x, height)
 
     def wheelEvent(self, event: QWheelEvent):
         """Handle mouse wheel events for zooming"""
@@ -126,10 +202,26 @@ class TimelineWidget(QWidget):
         self.update_timeline_width()
         self.update()
 
+    def set_song_structure(self, song_structure):
+        """Set song structure for this timeline"""
+        self.song_structure = song_structure
+        self.update_timeline_width()
+        self.update()
+
     def set_bpm(self, bpm):
         """Set BPM for grid calculations"""
         self.bpm = bpm
         self.update()
+
+    def get_current_bpm(self) -> float:
+        """Get BPM at current playhead position"""
+        if (hasattr(self, 'song_structure') and self.song_structure and
+                hasattr(self.song_structure, 'get_bmp_at_time')):
+            try:
+                return self.song_structure.get_bpm_at_time(self.playhead_position)
+            except (AttributeError, TypeError):
+                pass
+        return self.bpm
 
     def set_pixels_per_beat(self, pixels):
         """Set zoom level (pixels per beat)"""
@@ -287,6 +379,10 @@ class LaneWidget(QFrame):
             self.scroll_position_changed.emit)
 
         main_layout.addWidget(self.timeline_scroll, 1)
+
+    def set_song_structure(self, song_structure):
+        """Set song structure for this lane's timeline"""
+        self.timeline_widget.set_song_structure(song_structure)
 
     def setup_midi_controls(self, layout):
         # MIDI Channel selection

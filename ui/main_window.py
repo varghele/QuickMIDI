@@ -177,6 +177,10 @@ class MainWindow(QMainWindow):
                     # Update master timeline with song structure
                     self.master_timeline.timeline_widget.set_song_structure(song_structure)
 
+                    # Update ALL lane timelines with song structure
+                    for lane_widget in self.lane_widgets:
+                        lane_widget.set_song_structure(song_structure)
+
                     # Update playback engine
                     self.playback_engine.set_song_structure(song_structure)
 
@@ -193,10 +197,13 @@ class MainWindow(QMainWindow):
         lane_widget = LaneWidget(lane, self)
         lane_widget.remove_requested.connect(self.remove_lane)
         lane_widget.scroll_position_changed.connect(self.sync_master_timeline_scroll)
-        lane_widget.zoom_changed.connect(self.sync_master_timeline_zoom)  # New connection
+        lane_widget.zoom_changed.connect(self.sync_master_timeline_zoom)
+
+        # Pass song structure if it exists
+        if hasattr(self.project, 'song_structure') and self.project.song_structure:
+            lane_widget.set_song_structure(self.project.song_structure)
 
         self.lane_widgets.append(lane_widget)
-
         insert_index = self.lanes_layout.count() - 1
         self.lanes_layout.insertWidget(insert_index, lane_widget)
 
@@ -208,7 +215,11 @@ class MainWindow(QMainWindow):
         lane_widget = LaneWidget(lane, self)
         lane_widget.remove_requested.connect(self.remove_lane)
         lane_widget.scroll_position_changed.connect(self.sync_master_timeline_scroll)
-        lane_widget.zoom_changed.connect(self.sync_master_timeline_zoom)  # New connection
+        lane_widget.zoom_changed.connect(self.sync_master_timeline_zoom)
+
+        # Pass song structure if it exists
+        if hasattr(self.project, 'song_structure') and self.project.song_structure:
+            lane_widget.set_song_structure(self.project.song_structure)
 
         self.lane_widgets.append(lane_widget)
 
@@ -265,6 +276,10 @@ class MainWindow(QMainWindow):
         for lane in self.project.lanes:
             lane_widget = LaneWidget(lane, self)
             lane_widget.remove_requested.connect(self.remove_lane)
+            # Pass song structure if it exists
+            if hasattr(self.project, 'song_structure') and self.project.song_structure:
+                lane_widget.set_song_structure(self.project.song_structure)
+
             self.lane_widgets.append(lane_widget)
             self.lanes_layout.addWidget(lane_widget)
 
