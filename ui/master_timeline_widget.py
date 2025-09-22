@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLabel, QScrollArea
+from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QLabel, QScrollArea
 from PyQt6.QtCore import Qt, pyqtSignal, QPoint, QRectF
 from PyQt6.QtGui import QPainter, QPen, QColor, QMouseEvent, QPolygon, QWheelEvent, QBrush
 from .lane_widget import TimelineWidget
@@ -151,10 +151,10 @@ class MasterTimelineWidget(TimelineWidget):
         self.draw_playhead(painter, width, height)
 
         # Draw info text
-        try:
-            self.draw_info_text(painter)
-        except Exception as e:
-            print(f"Error drawing info text: {e}")
+        #try:
+        #    self.draw_info_text(painter)
+        #except Exception as e:
+        #    print(f"Error drawing info text: {e}")
 
     def draw_song_structure(self, painter, width, height):
         """Draw song structure parts as colored segments"""
@@ -363,10 +363,13 @@ class MasterTimelineContainer(QWidget):
         self.setup_ui()
 
     def setup_ui(self):
-        layout = QHBoxLayout(self)
+        layout = QVBoxLayout(self)  # FIXED: Changed from QHBoxLayout to QVBoxLayout
         layout.setContentsMargins(0, 0, 0, 0)
-        self.setMinimumHeight(60)  # Instead of setFixedHeight
-        self.setMaximumHeight(65)  # Optional: set a maximum height too
+        self.setMinimumHeight(95)
+        self.setMaximumHeight(100)
+
+        # Top row with timeline label and info
+        top_row_layout = QHBoxLayout()
 
         # Timeline label (matches lane control width)
         timeline_label = QWidget()
@@ -375,16 +378,30 @@ class MasterTimelineContainer(QWidget):
         label_layout.addWidget(QLabel("Master Timeline"))
         label_layout.addStretch()
 
+        # Info display widget
+        self.info_widget = QLabel()
+        self.info_widget.setStyleSheet("color: #333; font-size: 10px; font-weight: bold;")
+        self.info_widget.setText("Time: 0.00s | BPM: 120.0 | Zoom: 1.0x")
+
+        top_row_layout.addWidget(timeline_label)
+        top_row_layout.addWidget(self.info_widget, 1)
+
+        # Bottom row with scrollable timeline
+        bottom_row_layout = QHBoxLayout()
+
+        # Empty space to align with timeline label
+        spacer_widget = QWidget()
+        spacer_widget.setFixedWidth(250)
+
         # Scrollable timeline area
         self.timeline_scroll = QScrollArea()
-        # Master timeline widget
         self.timeline_widget = MasterTimelineWidget()
         self.timeline_widget.playhead_moved.connect(self.playhead_moved.emit)
         self.timeline_widget.zoom_changed.connect(self.zoom_changed.emit)
+        self.timeline_widget.playhead_moved.connect(self.update_info_display)  # New connection
 
         self.timeline_scroll.setWidget(self.timeline_widget)
         self.timeline_scroll.setWidgetResizable(False)
-
         self.timeline_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.timeline_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
@@ -392,8 +409,28 @@ class MasterTimelineContainer(QWidget):
         self.timeline_scroll.horizontalScrollBar().valueChanged.connect(
             self.scroll_position_changed.emit)
 
-        layout.addWidget(timeline_label)
-        layout.addWidget(self.timeline_scroll, 1)
+        bottom_row_layout.addWidget(spacer_widget)
+        bottom_row_layout.addWidget(self.timeline_scroll, 1)
+
+        # FIXED: Add both rows to the main layout (removed the incorrect lines)
+        layout.addLayout(top_row_layout)
+        layout.addLayout(bottom_row_layout)
+
+    def update_info_display(self, position: float):
+        """Update the info display with current values"""
+        current_bpm = self.timeline_widget.get_current_bpm()
+        zoom_factor = self.timeline_widget.zoom_factor
+
+        # Get current song part if available
+        part_info = ""
+        if (hasattr(self.timeline_widget, 'song_structure') and
+                self.timeline_widget.song_structure):
+            current_part = self.timeline_widget.song_structure.get_part_at_time(position)
+            if current_part:
+                part_info = f" | Part: {current_part.name}"
+
+        info_text = f"Time: {position:.2f}s | BPM: {current_bpm:.1f} | Zoom: {zoom_factor:.1f}x{part_info}"
+        self.info_widget.setText(info_text)
 
     def set_bpm(self, bpm: float):
         """Set BPM for timeline calculations"""
