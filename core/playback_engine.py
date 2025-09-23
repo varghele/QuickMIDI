@@ -66,8 +66,14 @@ class PlaybackEngine(QObject):
     def set_position(self, position: float):
         """Set playback position (in seconds)"""
         if self.snap_to_grid:
-            # Snap to nearest beat
-            beat_duration = 60.0 / self.bpm  # seconds per beat
+            # Get correct BPM for the target position
+            if hasattr(self, 'song_structure') and self.song_structure:
+                current_bpm = self.song_structure.get_bpm_at_time(position)
+            else:
+                current_bpm = self.bpm
+
+            # Snap to nearest beat using correct BPM
+            beat_duration = 60.0 / current_bpm  # seconds per beat
             position = round(position / beat_duration) * beat_duration
 
         self.current_position = max(0.0, position)
