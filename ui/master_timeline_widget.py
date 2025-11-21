@@ -308,8 +308,7 @@ class MasterTimelineWidget(TimelineWidget):
     def time_to_pixel(self, time: float) -> float:
         """Convert time in seconds to pixel position using accumulated beats"""
         try:
-            if (hasattr(self, 'song_structure') and self.song_structure and
-                    hasattr(self, 'parts') and self.song_structure.parts):
+            if self.song_structure and getattr(self.song_structure, 'parts', None):
 
                 total_beats = 0.0
 
@@ -343,8 +342,7 @@ class MasterTimelineWidget(TimelineWidget):
     def pixel_to_time(self, pixel: float) -> float:
         """Convert pixel position to time in seconds using accumulated beats"""
         try:
-            if (hasattr(self, 'song_structure') and self.song_structure and
-                    hasattr(self, 'parts') and self.song_structure.parts):
+            if self.song_structure and getattr(self.song_structure, 'parts', None):
 
                 target_beats = pixel / self.pixels_per_beat
                 accumulated_beats = 0.0
