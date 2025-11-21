@@ -203,40 +203,24 @@ class MasterTimelineWidget(TimelineWidget):
             print(f"Error in draw_song_structure: {e}")
 
     def draw_grid(self, painter, width, height):
-        """Draw song structure-aware grid using same BPM scaling as playhead"""
+        """Draw song structure-aware grid using the same time mapping as the playhead"""
         if (hasattr(self, 'song_structure') and self.song_structure and
                 hasattr(self.song_structure, 'parts') and self.song_structure.parts):
             try:
-                # Draw grid based on song structure with BPM scaling
                 bar_pen = QPen(QColor("#999999"), 2)
                 beat_pen = QPen(QColor("#cccccc"), 1)
-                reference_bpm = 120.0  # Same reference BPM as time_to_pixel
-                accumulated_scaled_beats = 0.0
 
                 for part in self.song_structure.parts:
-                    beats_per_bar = part.get_beats_per_bar()
-                    bpm_scale_factor = reference_bpm / part.bpm
-                    part_total_beats = part.get_total_beats()
+                    beats_per_bar = int(part.get_beats_per_bar())
+                    total_beats = int(part.get_total_beats())
 
-                    # Draw ALL beats for this part (not just bars)
-                    for beat in range(int(part_total_beats) + 1):
-                        # Calculate scaled beat position
-                        scaled_beat_position = accumulated_scaled_beats + (beat * bpm_scale_factor)
-
-                        # Convert to pixel position directly
-                        beat_x = scaled_beat_position * self.pixels_per_beat
+                    for beat_index in range(total_beats + 1):
+                        beat_time = self._get_time_for_beat_in_part(part, beat_index)
+                        beat_x = self.time_to_pixel(beat_time)
 
                         if 0 <= beat_x <= width:
-                            # Use thick line for bar boundaries, thin for beats
-                            if beat % beats_per_bar == 0:
-                                painter.setPen(bar_pen)
-                            else:
-                                painter.setPen(beat_pen)
+                            painter.setPen(bar_pen if beat_index % beats_per_bar == 0 else beat_pen)
                             painter.drawLine(int(beat_x), 0, int(beat_x), height)
-
-                    # Add this part's total scaled beats for next part
-                    part_scaled_beats = part_total_beats * bpm_scale_factor
-                    accumulated_scaled_beats += part_scaled_beats
 
             except (AttributeError, ZeroDivisionError, TypeError) as e:
                 print(f"Error in draw_grid: {e}")
@@ -322,86 +306,70 @@ class MasterTimelineWidget(TimelineWidget):
                 print(f"Error getting current part: {e}")
 
     def time_to_pixel(self, time: float) -> float:
-        """Convert time in seconds to pixel position using Reaper-style positioning (beat-based with BPM scaling)"""
+        """Convert time in seconds to pixel position using accumulated beats"""
         try:
             if (hasattr(self, 'song_structure') and self.song_structure and
-                    hasattr(self.song_structure, 'parts') and self.song_structure.parts):
+                    hasattr(self, 'parts') and self.song_structure.parts):
 
-                # Calculate total scaled beats from start to target time
-                total_scaled_beats = 0.0
-                reference_bpm = 120.0  # Reference BPM for scaling
+                total_beats = 0.0
 
                 for part in self.song_structure.parts:
                     part_start = part.start_time
                     part_end = part.start_time + part.duration
 
                     if time <= part_start:
-                        # Target time is before this part
                         break
                     elif time >= part_end:
-                        # Target time is after this part - add all scaled beats from this part
-                        beats_in_part = part.get_total_beats()
-                        # Scale beats by BPM ratio (higher BPM = more compressed)
-                        bpm_scale_factor = reference_bpm / part.bpm
-                        scaled_beats = beats_in_part * bpm_scale_factor
-                        total_scaled_beats += scaled_beats
+                        # Add all beats from this part
+                        total_beats += part.get_total_beats()
                     else:
-                        # Target time is within this part
-                        time_in_part = time - part_start
-                        progress_in_part = time_in_part / part.duration
-                        beats_in_partial_part = part.get_total_beats() * progress_in_part
-                        # Scale beats by BPM ratio
-                        bpm_scale_factor = reference_bpm / part.bpm
-                        scaled_beats = beats_in_partial_part * bpm_scale_factor
-                        total_scaled_beats += scaled_beats
+                        # Add beats up to the target time inside the part
+                        beats_in_part = self._integrate_beats_in_part(
+                            part,
+                            0.0,
+                            time - part_start
+                        )
+                        total_beats += beats_in_part
                         break
 
-                # Convert scaled beats to pixels
-                return total_scaled_beats * self.pixels_per_beat
+                return total_beats * self.pixels_per_beat
             else:
-                # Fallback calculation
                 beats = (time / 60.0) * self.bpm
                 return beats * self.pixels_per_beat
         except (AttributeError, ZeroDivisionError, TypeError):
-            # Fallback calculation
             beats = (time / 60.0) * self.bpm
             return beats * self.pixels_per_beat
 
     def pixel_to_time(self, pixel: float) -> float:
-        """Convert pixel position to time in seconds using Reaper-style positioning"""
+        """Convert pixel position to time in seconds using accumulated beats"""
         try:
             if (hasattr(self, 'song_structure') and self.song_structure and
-                    hasattr(self.song_structure, 'parts') and self.song_structure.parts):
+                    hasattr(self, 'parts') and self.song_structure.parts):
 
-                # Convert pixels to target scaled beats
-                target_scaled_beats = pixel / self.pixels_per_beat
-                accumulated_scaled_beats = 0.0
-                reference_bpm = 120.0  # Same reference BPM
+                target_beats = pixel / self.pixels_per_beat
+                accumulated_beats = 0.0
 
                 for part in self.song_structure.parts:
                     beats_in_part = part.get_total_beats()
-                    # Scale beats by BPM ratio
-                    bpm_scale_factor = reference_bpm / part.bpm
-                    scaled_beats_in_part = beats_in_part * bpm_scale_factor
 
-                    if accumulated_scaled_beats + scaled_beats_in_part >= target_scaled_beats:
-                        # Target is within this part
-                        remaining_scaled_beats = target_scaled_beats - accumulated_scaled_beats
-                        # Convert back to actual beats for this part
-                        remaining_actual_beats = remaining_scaled_beats / bpm_scale_factor
-                        progress_in_part = remaining_actual_beats / beats_in_part
-                        time_in_part = part.duration * progress_in_part
+                    if accumulated_beats + beats_in_part >= target_beats:
+                        # Target lies within this part
+                        remaining_beats = target_beats - accumulated_beats
+
+                        if part.transition == "instant":
+                            time_in_part = (remaining_beats / part.bpm) * 60.0
+                        else:
+                            time_in_part = self._find_time_for_beats_in_part(part, remaining_beats)
+
                         return part.start_time + time_in_part
 
-                    accumulated_scaled_beats += scaled_beats_in_part
+                    accumulated_beats += beats_in_part
 
-                # If we get here, target is beyond the song structure
                 if self.song_structure.parts:
                     last_part = self.song_structure.parts[-1]
                     return last_part.start_time + last_part.duration
                 return 0.0
             else:
-                # Fallback calculation
                 beats = pixel / self.pixels_per_beat
                 return (beats / self.bpm) * 60.0
         except (AttributeError, ZeroDivisionError, TypeError):
@@ -594,6 +562,17 @@ class MasterTimelineWidget(TimelineWidget):
         # Find the closest candidate
         closest_time = min(candidates, key=lambda t: abs(t - target_time))
         return closest_time
+
+    def _get_time_for_beat_in_part(self, part, beat_index: int) -> float:
+        """Return the absolute time for a beat index inside a part"""
+        if part.transition == "instant":
+            seconds_per_beat = 60.0 / part.bpm
+            return part.start_time + (beat_index * seconds_per_beat)
+
+        # Gradual transition - find time based on accumulated beats
+        beat_time_in_part = self._find_time_for_beats_in_part(part, beat_index)
+        return part.start_time + beat_time_in_part
+
 
 
 class MasterTimelineContainer(QWidget):
