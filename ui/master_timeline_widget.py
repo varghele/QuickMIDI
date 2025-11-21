@@ -308,8 +308,7 @@ class MasterTimelineWidget(TimelineWidget):
     def time_to_pixel(self, time: float) -> float:
         """Convert time in seconds to pixel position using accumulated beats"""
         try:
-            if (hasattr(self, 'song_structure') and self.song_structure and
-                    hasattr(self, 'parts') and self.song_structure.parts):
+            if self.song_structure and getattr(self.song_structure, 'parts', None):
 
                 total_beats = 0.0
 
@@ -343,27 +342,30 @@ class MasterTimelineWidget(TimelineWidget):
     def pixel_to_time(self, pixel: float) -> float:
         """Convert pixel position to time in seconds using accumulated beats"""
         try:
-            if (hasattr(self, 'song_structure') and self.song_structure and
-                    hasattr(self, 'parts') and self.song_structure.parts):
+            if self.song_structure and getattr(self.song_structure, 'parts', None):
 
                 target_beats = pixel / self.pixels_per_beat
                 accumulated_beats = 0.0
 
                 for part in self.song_structure.parts:
                     beats_in_part = part.get_total_beats()
+                    part_end_beats = accumulated_beats + beats_in_part
 
-                    if accumulated_beats + beats_in_part >= target_beats:
-                        # Target lies within this part
-                        remaining_beats = target_beats - accumulated_beats
+                    if target_beats > part_end_beats:
+                        accumulated_beats = part_end_beats
+                        continue
 
-                        if part.transition == "instant":
-                            time_in_part = (remaining_beats / part.bpm) * 60.0
-                        else:
-                            time_in_part = self._find_time_for_beats_in_part(part, remaining_beats)
+                    if abs(target_beats - part_end_beats) < 1e-9:
+                        return part.start_time + part.duration
 
-                        return part.start_time + time_in_part
+                    remaining_beats = target_beats - accumulated_beats
 
-                    accumulated_beats += beats_in_part
+                    if part.transition == "instant":
+                        time_in_part = (remaining_beats / part.bpm) * 60.0
+                    else:
+                        time_in_part = self._find_time_for_beats_in_part(part, remaining_beats)
+
+                    return part.start_time + time_in_part
 
                 if self.song_structure.parts:
                     last_part = self.song_structure.parts[-1]
