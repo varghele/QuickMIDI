@@ -106,20 +106,6 @@ class MasterTimelineWidget(TimelineWidget):
     def set_song_structure(self, song_structure):
         """Set the song structure for visualization"""
         self.song_structure = song_structure
-
-        # Debug: Print part boundaries and calculated beat positions
-        if song_structure and song_structure.parts:
-            print("DEBUG: Song structure loaded:")
-            for i, part in enumerate(song_structure.parts):
-                total_beats = int(part.get_total_beats())
-                seconds_per_beat = 60.0 / part.bpm
-                calc_duration = total_beats * seconds_per_beat
-                calc_end = part.start_time + calc_duration
-                stored_end = part.start_time + part.duration
-                print(f"  Part {i} '{part.name}': start={part.start_time:.10f}s, "
-                      f"duration={part.duration:.10f}s, stored_end={stored_end:.10f}s, "
-                      f"calc_end={calc_end:.10f}s, diff={abs(stored_end - calc_end):.10e}")
-
         self.update_timeline_width()
         self.update()
 
@@ -223,11 +209,6 @@ class MasterTimelineWidget(TimelineWidget):
                 bar_pen = QPen(QColor("#666666"), 1)  # Darker for bar lines
                 beat_pen = QPen(QColor("#aaaaaa"), 1)  # Beat lines
 
-                # Debug: print grid positions once
-                if not hasattr(self, '_grid_debug_done'):
-                    self._grid_debug_done = True
-                    print(f"DEBUG GRID positions (pixels_per_second={self.pixels_per_second}):")
-
                 num_parts = len(self.song_structure.parts)
                 for part_idx, part in enumerate(self.song_structure.parts):
                     beats_per_bar = int(part.get_beats_per_bar())
@@ -249,28 +230,11 @@ class MasterTimelineWidget(TimelineWidget):
                         beat_x = self.time_to_pixel(beat_time)
                         beat_x_rounded = round(beat_x)
 
-                        # Debug output for first few beats and last few beats of each part
-                        if hasattr(self, '_grid_debug_done'):
-                            if beat_index < 5 or beat_index >= max_beat_index - 2:
-                                if beat_index == 0:
-                                    print(f"  {part.name} (part {part_idx}, max_beat_index={max_beat_index}):")
-                                print(f"    beat {beat_index}: time={beat_time:.6f}s, pixel={beat_x:.2f}, rounded={beat_x_rounded}")
-
                         if 0 <= beat_x_rounded <= width:
                             # Bar line (every beats_per_bar beats within the part)
                             is_bar_line = (beat_index % beats_per_bar == 0)
                             painter.setPen(bar_pen if is_bar_line else beat_pen)
                             painter.drawLine(beat_x_rounded, 0, beat_x_rounded, height)
-
-                            # Debug: draw a blue dot at the grid line position (always, for first 10 beats of each part)
-                            if beat_index < 10:
-                                painter.setBrush(QBrush(QColor("#0000FF")))
-                                painter.setPen(QPen(QColor("#0000FF"), 1))
-                                painter.drawEllipse(QPoint(beat_x_rounded, height - 10), 2, 2)
-
-                # Clear flag after first full draw
-                if hasattr(self, '_grid_debug_done'):
-                    delattr(self, '_grid_debug_done')
 
             except Exception as e:
                 import traceback
@@ -308,24 +272,9 @@ class MasterTimelineWidget(TimelineWidget):
             playhead_x = self.time_to_pixel(self.playhead_position)
             playhead_x_rounded = round(playhead_x)
 
-            # Debug: print playhead drawing position
-            if hasattr(self, '_playhead_debug_count'):
-                self._playhead_debug_count += 1
-            else:
-                self._playhead_debug_count = 0
-
-            if self._playhead_debug_count < 3:  # Only print first few times
-                print(f"DEBUG PLAYHEAD DRAW: position={self.playhead_position:.6f}s, pixel={playhead_x:.2f}, rounded={playhead_x_rounded}")
-
             if 0 <= playhead_x_rounded <= width:
-                # Debug: draw a green dot at the exact grid position for comparison
-                # This should align with the grid line if calculations are correct
-                painter.setBrush(QBrush(QColor("#00FF00")))
-                painter.setPen(QPen(QColor("#00FF00"), 1))
-                painter.drawEllipse(QPoint(playhead_x_rounded, height // 2), 3, 3)
-
                 # Playhead line
-                playhead_pen = QPen(QColor("#FF4444"), 1)
+                playhead_pen = QPen(QColor("#FF4444"), 2)
                 painter.setPen(playhead_pen)
                 painter.drawLine(playhead_x_rounded, 0, playhead_x_rounded, height)
 
@@ -406,12 +355,7 @@ class MasterTimelineWidget(TimelineWidget):
 
         # Apply snap to grid if enabled
         if self.snap_to_grid:
-            snapped_time = self.find_nearest_beat_time(time_position)
-            snapped_pixel = self.time_to_pixel(snapped_time)
-            print(f"DEBUG SNAP (pixels_per_second={self.pixels_per_second}): click_pixel={x_pos}, raw_time={time_position:.6f}s, "
-                  f"snapped_time={snapped_time:.6f}s, snapped_pixel={snapped_pixel:.2f}")
-            time_position = snapped_time
-            self._playhead_debug_count = 0  # Reset to print playhead draw info
+            time_position = self.find_nearest_beat_time(time_position)
 
         time_position = max(0.0, time_position)
         self.playhead_position = time_position
@@ -491,10 +435,6 @@ class MasterTimelineWidget(TimelineWidget):
 
         # Find the closest candidate
         closest_time = min(candidates, key=lambda t: abs(t - target_time))
-
-        # Debug: show all candidates when near part boundaries
-        if target_part_index > 0 or (target_part_index == 0 and target_time > target_part.start_time + target_part.duration - 2):
-            print(f"DEBUG CANDIDATES: target_time={target_time:.6f}, part={target_part.name}, candidates={[f'{c:.6f}' for c in sorted(candidates)]}, chosen={closest_time:.6f}")
 
         return closest_time
 
