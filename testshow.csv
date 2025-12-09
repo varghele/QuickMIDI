@@ -1,0 +1,3 @@
+showpart,signature,bpm,num_bars,transition,color
+intro,4/4,60,4,instant,#ffffff
+vers,4/4,222,9,instant,#00ffff
