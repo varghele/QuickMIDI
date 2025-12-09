@@ -64,18 +64,12 @@ class PlaybackEngine(QObject):
         self.playback_stopped.emit()
 
     def set_position(self, position: float):
-        """Set playback position (in seconds)"""
-        if self.snap_to_grid:
-            # Get correct BPM for the target position
-            if hasattr(self, 'song_structure') and self.song_structure:
-                current_bpm = self.song_structure.get_bpm_at_time(position)
-            else:
-                current_bpm = self.bpm
+        """Set playback position (in seconds)
 
-            # Snap to nearest beat using correct BPM
-            beat_duration = 60.0 / current_bpm  # seconds per beat
-            position = round(position / beat_duration) * beat_duration
-
+        Note: Snapping to grid is handled by the master timeline widget,
+        so we don't need to snap here. The position passed in is already
+        snapped if snap_to_grid is enabled in the UI.
+        """
         self.current_position = max(0.0, position)
         self.position_changed.emit(self.current_position)
 

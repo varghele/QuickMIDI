@@ -18,8 +18,8 @@ class TimelineWidget(QWidget):
         super().__init__(parent)
         self.bpm = 120.0
         self.zoom_factor = 1.0
-        self.base_pixels_per_beat = 60
-        self.pixels_per_beat = self.base_pixels_per_beat
+        self.base_pixels_per_second = 60  # Time-based: 60 pixels per second
+        self.pixels_per_second = self.base_pixels_per_second
         self.snap_to_grid = True
         self.playhead_position = 0.0  # Position in seconds
         self.min_zoom = 0.1
@@ -32,20 +32,18 @@ class TimelineWidget(QWidget):
 
     def update_timeline_width(self):
         """Update timeline width based on zoom level and song structure"""
-        self.pixels_per_beat = self.base_pixels_per_beat * self.zoom_factor
+        self.pixels_per_second = self.base_pixels_per_second * self.zoom_factor
 
         # Check if we have song structure to calculate width
         if (hasattr(self, 'song_structure') and self.song_structure and
                 hasattr(self.song_structure, 'parts') and self.song_structure.parts):
             try:
                 total_duration = self.song_structure.get_total_duration()
-                avg_bpm = sum(part.bpm for part in self.song_structure.parts) / len(self.song_structure.parts)
-                total_beats = (total_duration / 60.0) * avg_bpm
-                new_width = max(2000, int(total_beats * self.pixels_per_beat))
+                new_width = max(2000, int(total_duration * self.pixels_per_second) + 100)
             except (AttributeError, ZeroDivisionError, TypeError):
-                new_width = max(2000, int(128 * self.pixels_per_beat))
+                new_width = max(2000, int(60 * self.pixels_per_second))  # Default 60 seconds
         else:
-            new_width = max(2000, int(128 * self.pixels_per_beat))
+            new_width = max(2000, int(60 * self.pixels_per_second))  # Default 60 seconds
 
         self.setMinimumWidth(new_width)
 
@@ -65,96 +63,78 @@ class TimelineWidget(QWidget):
             self.draw_basic_grid(painter, width, height)
 
     def draw_song_structure_grid(self, painter, width, height):
-        """Draw grid based on song structure"""
+        """Draw grid based on song structure using time_to_pixel for consistency"""
         beat_pen = QPen(QColor("#cccccc"), 1)
         bar_pen = QPen(QColor("#999999"), 2)
         part_pen = QPen(QColor("#666666"), 3)  # Thicker line for part boundaries
 
-        for part in self.song_structure.parts:
-            start_x = self.time_to_pixel(part.start_time)
-            end_x = self.time_to_pixel(part.start_time + part.duration)
+        num_parts = len(self.song_structure.parts)
+        for part_idx, part in enumerate(self.song_structure.parts):
+            beats_per_bar = int(part.get_beats_per_bar())
+            total_beats_in_part = int(part.get_total_beats())
+            seconds_per_beat = 60.0 / part.bpm
 
             # Draw part boundary
+            start_x = round(self.time_to_pixel(part.start_time))
             if 0 <= start_x <= width:
                 painter.setPen(part_pen)
-                painter.drawLine(int(start_x), 0, int(start_x), height)
+                painter.drawLine(start_x, 0, start_x, height)
 
-            # Draw bar lines within this part
-            for bar in range(part.num_bars + 1):
-                if part.num_bars > 0:
-                    bar_time = part.start_time + (bar / part.num_bars) * part.duration
-                    bar_x = self.time_to_pixel(bar_time)
+            # For all parts except the last, skip the final beat
+            # (it will be drawn as beat 0 of the next part to avoid
+            # floating-point boundary issues)
+            is_last_part = (part_idx == num_parts - 1)
+            max_beat = total_beats_in_part if is_last_part else total_beats_in_part - 1
 
-                    if 0 <= bar_x <= width:
-                        painter.setPen(bar_pen)
-                        painter.drawLine(int(bar_x), 0, int(bar_x), height)
+            # Draw beat lines within this part
+            for beat_index in range(max_beat + 1):
+                # Calculate time for this beat within the part
+                beat_time = part.start_time + (beat_index * seconds_per_beat)
+                beat_x = round(self.time_to_pixel(beat_time))
+
+                if 0 <= beat_x <= width:
+                    # Use bar pen for bar boundaries, beat pen for beats
+                    painter.setPen(bar_pen if beat_index % beats_per_bar == 0 else beat_pen)
+                    painter.drawLine(beat_x, 0, beat_x, height)
 
     def draw_basic_grid(self, painter, width, height):
-        """Draw basic grid without song structure"""
+        """Draw basic grid without song structure (time-based)"""
         beat_pen = QPen(QColor("#cccccc"), 1)
         bar_pen = QPen(QColor("#999999"), 2)
 
-        x = 0.0
+        # Use default BPM for basic grid
+        seconds_per_beat = 60.0 / self.bpm
         beat_count = 0
-        while x < width:
+        beat_time = 0.0
+        max_time = width / self.pixels_per_second
+
+        while beat_time <= max_time:
+            x = round(self.time_to_pixel(beat_time))
             if beat_count % 4 == 0:
                 painter.setPen(bar_pen)
             else:
                 painter.setPen(beat_pen)
 
-            x_int = int(x)
-            painter.drawLine(x_int, 0, x_int, height)
-            x += self.pixels_per_beat
+            painter.drawLine(x, 0, x, height)
             beat_count += 1
-
-        # Draw time markers
-        painter.setPen(QPen(QColor("#666666"), 1))
-        font = painter.font()
-        font.setPointSize(8)
-        painter.setFont(font)
-
-        x = 0.0
-        bar_number = 1
-        while x < width:
-            if x > 0:
-                current_bpm = self.get_current_bpm()
-                time_seconds = (bar_number - 1) * 4 * (60.0 / current_bpm)
-                x_int = int(x)
-                painter.drawText(x_int + 2, 12, f"Bar {bar_number} ({time_seconds:.1f}s)")
-            x += self.pixels_per_beat * 4
-            bar_number += 1
+            beat_time = beat_count * seconds_per_beat
 
     def time_to_pixel(self, time: float) -> float:
-        """Convert time to pixel position with song structure awareness"""
-        try:
-            if (hasattr(self, 'song_structure') and self.song_structure and
-                    hasattr(self.song_structure, 'get_bpm_at_time')):
-                current_bpm = self.song_structure.get_bpm_at_time(time)
-                beats = (time / 60.0) * current_bpm
-                return beats * self.pixels_per_beat / (current_bpm / 60.0)
-            else:
-                beats = (time / 60.0) * self.bpm
-                return beats * self.pixels_per_beat / (self.bpm / 60.0)
-        except (AttributeError, ZeroDivisionError, TypeError):
-            beats = (time / 60.0) * self.bpm
-            return beats * self.pixels_per_beat / (self.bpm / 60.0)
+        """Convert time in seconds to pixel position (time-based layout)"""
+        return time * self.pixels_per_second
+
+    def pixel_to_time(self, pixel: float) -> float:
+        """Convert pixel position to time in seconds (time-based layout)"""
+        return pixel / self.pixels_per_second
 
     def draw_playhead(self, painter, width, height):
-        """Draw playhead with song structure awareness"""
-        try:
-            playhead_x = int(self.time_to_pixel(self.playhead_position))
+        """Draw playhead at time position"""
+        playhead_x = round(self.time_to_pixel(self.playhead_position))
 
-            if 0 <= playhead_x <= width:
-                playhead_pen = QPen(QColor("#FF4444"), 2)
-                painter.setPen(playhead_pen)
-                painter.drawLine(playhead_x, 0, playhead_x, height)
-        except (AttributeError, TypeError):
-            # Fallback to basic calculation
-            playhead_x = int(self.playhead_position * self.pixels_per_beat * (self.bpm / 60.0))
-            if 0 <= playhead_x <= width:
-                playhead_pen = QPen(QColor("#FF4444"), 2)
-                painter.setPen(playhead_pen)
-                painter.drawLine(playhead_x, 0, playhead_x, height)
+        if 0 <= playhead_x <= width:
+            playhead_pen = QPen(QColor("#FF4444"), 2)
+            painter.setPen(playhead_pen)
+            painter.drawLine(playhead_x, 0, playhead_x, height)
 
     def wheelEvent(self, event: QWheelEvent):
         """Handle mouse wheel events for zooming"""
@@ -166,8 +146,8 @@ class TimelineWidget(QWidget):
             # Get mouse position for zoom center
             mouse_x = event.position().x()
 
-            # Calculate time position at mouse cursor before zoom
-            time_at_mouse = mouse_x / self.pixels_per_beat * (60.0 / self.bpm)
+            # Calculate time position at mouse cursor before zoom (song structure aware)
+            time_at_mouse = self.pixel_to_time(mouse_x)
 
             # Apply zoom
             old_zoom = self.zoom_factor
@@ -180,8 +160,8 @@ class TimelineWidget(QWidget):
                 self.update_timeline_width()
                 self.zoom_changed.emit(self.zoom_factor)
 
-                # Maintain mouse position after zoom
-                new_mouse_x = time_at_mouse * self.pixels_per_beat / (60.0 / self.bpm)
+                # Maintain mouse position after zoom (song structure aware)
+                new_mouse_x = self.time_to_pixel(time_at_mouse)
                 scroll_offset = new_mouse_x - mouse_x
 
                 # Notify parent scroll area to adjust position
@@ -223,9 +203,9 @@ class TimelineWidget(QWidget):
                 pass
         return self.bpm
 
-    def set_pixels_per_beat(self, pixels):
-        """Set zoom level (pixels per beat)"""
-        self.pixels_per_beat = pixels
+    def set_pixels_per_second(self, pixels):
+        """Set zoom level (pixels per second)"""
+        self.pixels_per_second = pixels
         self.update()
 
     def set_snap_to_grid(self, snap):
@@ -440,7 +420,7 @@ class LaneWidget(QFrame):
         # Update MIDI block positions
         for block_widget in self.midi_block_widgets:
             if hasattr(block_widget, 'set_grid_size'):
-                block_widget.set_grid_size(self.timeline_widget.pixels_per_beat)
+                block_widget.set_grid_size(self.timeline_widget.pixels_per_second)
             if hasattr(block_widget, 'update_position'):
                 block_widget.update_position()
 
@@ -497,7 +477,7 @@ class LaneWidget(QFrame):
         block_widget.position_changed.connect(self.on_block_position_changed)
 
         # Set grid properties
-        block_widget.set_grid_size(self.timeline_widget.pixels_per_beat)
+        block_widget.set_grid_size(self.timeline_widget.pixels_per_second)
         block_widget.set_snap_to_grid(self.timeline_widget.snap_to_grid)
 
         self.midi_block_widgets.append(block_widget)

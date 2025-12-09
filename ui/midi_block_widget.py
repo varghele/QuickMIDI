@@ -17,7 +17,7 @@ class MidiBlockWidget(QFrame):
         self.dragging = False
         self.drag_start_pos = QPoint()
         self.snap_to_grid = True
-        self.grid_size = 60  # pixels per beat (will be calculated based on BPM and zoom)
+        self.grid_size = 60  # pixels per second (time-based layout)
 
         self.setFrameStyle(QFrame.Shape.Box)
         self.setLineWidth(1)
@@ -119,9 +119,9 @@ class MidiBlockWidget(QFrame):
             # Update time label
             self.time_label.setText(f"{self.block.start_time:.2f}s")
 
-    def set_grid_size(self, pixels_per_beat):
-        """Set the grid size for positioning calculations"""
-        self.grid_size = pixels_per_beat
+    def set_grid_size(self, pixels_per_second):
+        """Set the grid size for positioning calculations (pixels per second)"""
+        self.grid_size = pixels_per_second
         self.update_position()
 
     def set_snap_to_grid(self, snap):

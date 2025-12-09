@@ -16,7 +16,7 @@ class MasterTimelineWidget(TimelineWidget):
         self.playhead_position = 0.0  # Position in seconds
         self.dragging_playhead = False
         self.zoom_factor = 1.0  # Current zoom multiplier
-        self.base_pixels_per_beat = 60  # Base zoom level
+        self.base_pixels_per_second = 60  # Base: 60 pixels per second
         self.min_zoom = 0.1  # Minimum zoom (very zoomed out)
         self.max_zoom = 5.0  # Maximum zoom (very zoomed in)
 
@@ -34,19 +34,17 @@ class MasterTimelineWidget(TimelineWidget):
 
     def update_timeline_width(self):
         """Update timeline width based on zoom level and song structure"""
-        self.pixels_per_beat = self.base_pixels_per_beat * self.zoom_factor
+        self.pixels_per_second = self.base_pixels_per_second * self.zoom_factor
 
         if hasattr(self, 'song_structure') and self.song_structure and hasattr(self.song_structure,
                                                                                'parts') and self.song_structure.parts:
             try:
                 total_duration = self.song_structure.get_total_duration()
-                avg_bpm = sum(part.bpm for part in self.song_structure.parts) / len(self.song_structure.parts)
-                total_beats = (total_duration / 60.0) * avg_bpm
-                new_width = max(2000, int(total_beats * self.pixels_per_beat))
+                new_width = max(2000, int(total_duration * self.pixels_per_second) + 100)
             except (AttributeError, ZeroDivisionError):
-                new_width = max(2000, int(128 * self.pixels_per_beat))
+                new_width = max(2000, int(60 * self.pixels_per_second))  # Default 60 seconds
         else:
-            new_width = max(2000, int(128 * self.pixels_per_beat))
+            new_width = max(2000, int(60 * self.pixels_per_second))  # Default 60 seconds
 
         self.setMinimumWidth(new_width)
 
@@ -60,8 +58,8 @@ class MasterTimelineWidget(TimelineWidget):
             # Get mouse position for zoom center
             mouse_x = event.position().x()
 
-            # Calculate time position at mouse cursor before zoom
-            time_at_mouse = mouse_x / self.pixels_per_beat * (60.0 / self.bpm)
+            # Calculate time position at mouse cursor before zoom (using song structure aware conversion)
+            time_at_mouse = self.pixel_to_time(mouse_x)
 
             # Apply zoom
             old_zoom = self.zoom_factor
@@ -74,8 +72,8 @@ class MasterTimelineWidget(TimelineWidget):
                 self.update_timeline_width()
                 self.zoom_changed.emit(self.zoom_factor)
 
-                # Maintain mouse position after zoom
-                new_mouse_x = time_at_mouse * self.pixels_per_beat / (60.0 / self.bpm)
+                # Maintain mouse position after zoom (using song structure aware conversion)
+                new_mouse_x = self.time_to_pixel(time_at_mouse)
                 scroll_offset = new_mouse_x - mouse_x
 
                 # Notify parent scroll area to adjust position
@@ -101,13 +99,27 @@ class MasterTimelineWidget(TimelineWidget):
     def ensure_playhead_visible(self):
         """Ensure playhead is visible by scrolling if necessary"""
         if hasattr(self.parent(), 'ensureWidgetVisible'):
-            playhead_x = int(self.playhead_position * self.pixels_per_beat * (self.bpm / 60.0))
+            playhead_x = int(self.time_to_pixel(self.playhead_position))
             margin = 100
             self.parent().ensureVisible(playhead_x, 0, margin, self.height())
 
     def set_song_structure(self, song_structure):
         """Set the song structure for visualization"""
         self.song_structure = song_structure
+
+        # Debug: Print part boundaries and calculated beat positions
+        if song_structure and song_structure.parts:
+            print("DEBUG: Song structure loaded:")
+            for i, part in enumerate(song_structure.parts):
+                total_beats = int(part.get_total_beats())
+                seconds_per_beat = 60.0 / part.bpm
+                calc_duration = total_beats * seconds_per_beat
+                calc_end = part.start_time + calc_duration
+                stored_end = part.start_time + part.duration
+                print(f"  Part {i} '{part.name}': start={part.start_time:.10f}s, "
+                      f"duration={part.duration:.10f}s, stored_end={stored_end:.10f}s, "
+                      f"calc_end={calc_end:.10f}s, diff={abs(stored_end - calc_end):.10e}")
+
         self.update_timeline_width()
         self.update()
 
@@ -203,68 +215,126 @@ class MasterTimelineWidget(TimelineWidget):
             print(f"Error in draw_song_structure: {e}")
 
     def draw_grid(self, painter, width, height):
-        """Draw song structure-aware grid using the same time mapping as the playhead"""
-        if (hasattr(self, 'song_structure') and self.song_structure and
-                hasattr(self.song_structure, 'parts') and self.song_structure.parts):
+        """Draw time-based grid with beat lines at actual time positions"""
+        has_structure = (hasattr(self, 'song_structure') and self.song_structure and
+                hasattr(self.song_structure, 'parts') and self.song_structure.parts)
+        if has_structure:
             try:
-                bar_pen = QPen(QColor("#999999"), 2)
-                beat_pen = QPen(QColor("#cccccc"), 1)
+                bar_pen = QPen(QColor("#666666"), 1)  # Darker for bar lines
+                beat_pen = QPen(QColor("#aaaaaa"), 1)  # Beat lines
 
-                for part in self.song_structure.parts:
+                # Debug: print grid positions once
+                if not hasattr(self, '_grid_debug_done'):
+                    self._grid_debug_done = True
+                    print(f"DEBUG GRID positions (pixels_per_second={self.pixels_per_second}):")
+
+                num_parts = len(self.song_structure.parts)
+                for part_idx, part in enumerate(self.song_structure.parts):
                     beats_per_bar = int(part.get_beats_per_bar())
-                    total_beats = int(part.get_total_beats())
+                    total_beats_in_part = int(part.get_total_beats())
+                    seconds_per_beat = 60.0 / part.bpm
 
-                    for beat_index in range(total_beats + 1):
-                        beat_time = self._get_time_for_beat_in_part(part, beat_index)
+                    # Draw beats 0 through (total_beats - 1) for each part
+                    # The boundary beat at the END of a part is the same as beat 0 of the next part
+                    # For the last part, also draw the final beat
+                    is_last_part = (part_idx == num_parts - 1)
+
+                    # Draw each beat line at its actual time position
+                    # For non-last parts: draw beats 0 to total_beats-1 (the last beat is at part boundary)
+                    # For last part: draw beats 0 to total_beats (include the final beat)
+                    max_beat_index = total_beats_in_part if is_last_part else total_beats_in_part - 1
+                    for beat_index in range(max_beat_index + 1):
+                        # Calculate the actual time for this beat
+                        beat_time = part.start_time + (beat_index * seconds_per_beat)
                         beat_x = self.time_to_pixel(beat_time)
+                        beat_x_rounded = round(beat_x)
 
-                        if 0 <= beat_x <= width:
-                            painter.setPen(bar_pen if beat_index % beats_per_bar == 0 else beat_pen)
-                            painter.drawLine(int(beat_x), 0, int(beat_x), height)
+                        # Debug output for first few beats and last few beats of each part
+                        if hasattr(self, '_grid_debug_done'):
+                            if beat_index < 5 or beat_index >= max_beat_index - 2:
+                                if beat_index == 0:
+                                    print(f"  {part.name} (part {part_idx}, max_beat_index={max_beat_index}):")
+                                print(f"    beat {beat_index}: time={beat_time:.6f}s, pixel={beat_x:.2f}, rounded={beat_x_rounded}")
 
-            except (AttributeError, ZeroDivisionError, TypeError) as e:
+                        if 0 <= beat_x_rounded <= width:
+                            # Bar line (every beats_per_bar beats within the part)
+                            is_bar_line = (beat_index % beats_per_bar == 0)
+                            painter.setPen(bar_pen if is_bar_line else beat_pen)
+                            painter.drawLine(beat_x_rounded, 0, beat_x_rounded, height)
+
+                            # Debug: draw a blue dot at the grid line position (always, for first 10 beats of each part)
+                            if beat_index < 10:
+                                painter.setBrush(QBrush(QColor("#0000FF")))
+                                painter.setPen(QPen(QColor("#0000FF"), 1))
+                                painter.drawEllipse(QPoint(beat_x_rounded, height - 10), 2, 2)
+
+                # Clear flag after first full draw
+                if hasattr(self, '_grid_debug_done'):
+                    delattr(self, '_grid_debug_done')
+
+            except Exception as e:
+                import traceback
                 print(f"Error in draw_grid: {e}")
-                # Fall back to basic grid
+                traceback.print_exc()
                 self.draw_basic_grid(painter, width, height)
         else:
-            # Fall back to basic grid
             self.draw_basic_grid(painter, width, height)
 
     def draw_basic_grid(self, painter, width, height):
-        """Draw basic grid without song structure"""
+        """Draw basic grid without song structure (time-based)"""
         beat_pen = QPen(QColor("#cccccc"), 1)
         bar_pen = QPen(QColor("#999999"), 2)
 
-        x = 0.0
+        # Use default BPM for basic grid
+        seconds_per_beat = 60.0 / self.bpm
         beat_count = 0
-        while x < width:
+        beat_time = 0.0
+        max_time = width / self.pixels_per_second
+
+        while beat_time <= max_time:
+            x = round(self.time_to_pixel(beat_time))
             if beat_count % 4 == 0:
                 painter.setPen(bar_pen)
             else:
                 painter.setPen(beat_pen)
 
-            x_int = int(x)
-            painter.drawLine(x_int, 0, x_int, height)
-            x += self.pixels_per_beat
+            painter.drawLine(x, 0, x, height)
             beat_count += 1
+            beat_time = beat_count * seconds_per_beat
 
     def draw_playhead(self, painter, width, height):
         """Override to draw enhanced playhead with triangle"""
         try:
             playhead_x = self.time_to_pixel(self.playhead_position)
+            playhead_x_rounded = round(playhead_x)
 
-            if 0 <= playhead_x <= width:
+            # Debug: print playhead drawing position
+            if hasattr(self, '_playhead_debug_count'):
+                self._playhead_debug_count += 1
+            else:
+                self._playhead_debug_count = 0
+
+            if self._playhead_debug_count < 3:  # Only print first few times
+                print(f"DEBUG PLAYHEAD DRAW: position={self.playhead_position:.6f}s, pixel={playhead_x:.2f}, rounded={playhead_x_rounded}")
+
+            if 0 <= playhead_x_rounded <= width:
+                # Debug: draw a green dot at the exact grid position for comparison
+                # This should align with the grid line if calculations are correct
+                painter.setBrush(QBrush(QColor("#00FF00")))
+                painter.setPen(QPen(QColor("#00FF00"), 1))
+                painter.drawEllipse(QPoint(playhead_x_rounded, height // 2), 3, 3)
+
                 # Playhead line
-                playhead_pen = QPen(QColor("#FF4444"), 3)
+                playhead_pen = QPen(QColor("#FF4444"), 1)
                 painter.setPen(playhead_pen)
-                painter.drawLine(int(playhead_x), 0, int(playhead_x), height)
+                painter.drawLine(playhead_x_rounded, 0, playhead_x_rounded, height)
 
                 # Playhead triangle at top
                 triangle_size = 8
                 triangle = QPolygon([
-                    QPoint(int(playhead_x), 0),
-                    QPoint(int(playhead_x) - triangle_size, triangle_size),
-                    QPoint(int(playhead_x) + triangle_size, triangle_size)
+                    QPoint(playhead_x_rounded, 0),
+                    QPoint(playhead_x_rounded - triangle_size, triangle_size),
+                    QPoint(playhead_x_rounded + triangle_size, triangle_size)
                 ])
 
                 painter.setBrush(QBrush(QColor("#FF4444")))
@@ -306,147 +376,12 @@ class MasterTimelineWidget(TimelineWidget):
                 print(f"Error getting current part: {e}")
 
     def time_to_pixel(self, time: float) -> float:
-        """Convert time in seconds to pixel position using accumulated beats"""
-        try:
-            if self.song_structure and getattr(self.song_structure, 'parts', None):
-
-                total_beats = 0.0
-
-                for part in self.song_structure.parts:
-                    part_start = part.start_time
-                    part_end = part.start_time + part.duration
-
-                    if time <= part_start:
-                        break
-                    elif time >= part_end:
-                        # Add all beats from this part
-                        total_beats += part.get_total_beats()
-                    else:
-                        # Add beats up to the target time inside the part
-                        beats_in_part = self._integrate_beats_in_part(
-                            part,
-                            0.0,
-                            time - part_start
-                        )
-                        total_beats += beats_in_part
-                        break
-
-                return total_beats * self.pixels_per_beat
-            else:
-                beats = (time / 60.0) * self.bpm
-                return beats * self.pixels_per_beat
-        except (AttributeError, ZeroDivisionError, TypeError):
-            beats = (time / 60.0) * self.bpm
-            return beats * self.pixels_per_beat
+        """Convert time in seconds to pixel position (time-based layout)"""
+        return time * self.pixels_per_second
 
     def pixel_to_time(self, pixel: float) -> float:
-        """Convert pixel position to time in seconds using accumulated beats"""
-        try:
-            if self.song_structure and getattr(self.song_structure, 'parts', None):
-
-                target_beats = pixel / self.pixels_per_beat
-                accumulated_beats = 0.0
-
-                for part in self.song_structure.parts:
-                    beats_in_part = part.get_total_beats()
-                    part_end_beats = accumulated_beats + beats_in_part
-
-                    if target_beats > part_end_beats:
-                        accumulated_beats = part_end_beats
-                        continue
-
-                    if abs(target_beats - part_end_beats) < 1e-9:
-                        return part.start_time + part.duration
-
-                    remaining_beats = target_beats - accumulated_beats
-
-                    if part.transition == "instant":
-                        time_in_part = (remaining_beats / part.bpm) * 60.0
-                    else:
-                        time_in_part = self._find_time_for_beats_in_part(part, remaining_beats)
-
-                    return part.start_time + time_in_part
-
-                if self.song_structure.parts:
-                    last_part = self.song_structure.parts[-1]
-                    return last_part.start_time + last_part.duration
-                return 0.0
-            else:
-                beats = pixel / self.pixels_per_beat
-                return (beats / self.bpm) * 60.0
-        except (AttributeError, ZeroDivisionError, TypeError):
-            beats = pixel / self.pixels_per_beat
-            return (beats / self.bpm) * 60.0
-
-    def _integrate_beats_in_part(self, part, start_time_in_part: float, end_time_in_part: float) -> float:
-        """Integrate beats over a time range within a song part with gradual BPM transition"""
-        if part.transition == "instant":
-            duration = end_time_in_part - start_time_in_part
-            return (duration / 60.0) * part.bpm
-
-        # Get previous part BPM for gradual transition
-        part_index = self.song_structure.parts.index(part)
-        start_bpm = (self.song_structure.parts[part_index - 1].bpm
-                     if part_index > 0 else part.bpm)
-        end_bpm = part.bpm
-
-        if start_bpm == end_bpm:
-            # No BPM change
-            duration = end_time_in_part - start_time_in_part
-            return (duration / 60.0) * part.bpm
-
-        # Numerical integration using the same curve as your calculate_step_timing function
-        total_beats = 0.0
-        num_steps = 100  # Integration steps for accuracy
-        step_duration = (end_time_in_part - start_time_in_part) / num_steps
-
-        for i in range(num_steps):
-            step_start = start_time_in_part + i * step_duration
-            step_end = start_time_in_part + (i + 1) * step_duration
-
-            # Calculate progress within the entire part (0.0 to 1.0)
-            progress_start = step_start / part.duration
-            progress_end = step_end / part.duration
-
-            # Apply the same curve as in your function: progress ** 0.52
-            curved_progress_start = progress_start ** 0.52
-            curved_progress_end = progress_end ** 0.52
-
-            # Calculate BPM at start and end of this step
-            bpm_start = start_bpm + (end_bpm - start_bpm) * curved_progress_start
-            bpm_end = start_bpm + (end_bpm - start_bpm) * curved_progress_end
-
-            # Use average BPM for this step
-            avg_bpm = (bpm_start + bpm_end) / 2.0
-
-            # Add beats for this step
-            step_beats = (step_duration / 60.0) * avg_bpm
-            total_beats += step_beats
-
-        return total_beats
-
-    def _find_time_for_beats_in_part(self, part, target_beats: float) -> float:
-        """Find the time within a part that corresponds to a target number of beats"""
-        if part.transition == "instant":
-            return (target_beats / part.bpm) * 60.0
-
-        # Binary search to find the time that gives us the target beats
-        low = 0.0
-        high = part.duration
-        tolerance = 0.001  # 1ms tolerance
-
-        for _ in range(50):  # Max 50 iterations
-            mid = (low + high) / 2.0
-            beats_at_mid = self._integrate_beats_in_part(part, 0.0, mid)
-
-            if abs(beats_at_mid - target_beats) < tolerance:
-                return mid
-            elif beats_at_mid < target_beats:
-                low = mid
-            else:
-                high = mid
-
-        return (low + high) / 2.0  # Return best approximation
+        """Convert pixel position to time in seconds (time-based layout)"""
+        return pixel / self.pixels_per_second
 
     def mousePressEvent(self, event: QMouseEvent):
         """Handle mouse press for playhead dragging"""
@@ -471,7 +406,12 @@ class MasterTimelineWidget(TimelineWidget):
 
         # Apply snap to grid if enabled
         if self.snap_to_grid:
-            time_position = self.find_nearest_beat_time(time_position)
+            snapped_time = self.find_nearest_beat_time(time_position)
+            snapped_pixel = self.time_to_pixel(snapped_time)
+            print(f"DEBUG SNAP (pixels_per_second={self.pixels_per_second}): click_pixel={x_pos}, raw_time={time_position:.6f}s, "
+                  f"snapped_time={snapped_time:.6f}s, snapped_pixel={snapped_pixel:.2f}")
+            time_position = snapped_time
+            self._playhead_debug_count = 0  # Reset to print playhead draw info
 
         time_position = max(0.0, time_position)
         self.playhead_position = time_position
@@ -479,7 +419,7 @@ class MasterTimelineWidget(TimelineWidget):
         self.update()
 
     def find_nearest_beat_time(self, target_time: float) -> float:
-        """Find the nearest beat position using existing integration functions"""
+        """Find the nearest beat position using the same calculation as grid drawing"""
         if not (hasattr(self, 'song_structure') and self.song_structure and
                 hasattr(self.song_structure, 'parts') and self.song_structure.parts):
             # Fallback to simple beat snapping
@@ -487,73 +427,61 @@ class MasterTimelineWidget(TimelineWidget):
             nearest_beat = round(target_time / beat_duration)
             return nearest_beat * beat_duration
 
-        # Find which part contains the target time (or is closest to it)
+        # Find which part contains the target time
         target_part = None
         target_part_index = -1
 
         for i, part in enumerate(self.song_structure.parts):
-            if part.start_time <= target_time <= part.start_time + part.duration:
+            if part.start_time <= target_time < part.start_time + part.duration:
                 target_part = part
                 target_part_index = i
                 break
 
-        # If not found within any part, find the closest part
-        if not target_part:
-            closest_distance = float('inf')
-            for i, part in enumerate(self.song_structure.parts):
-                # Distance to start of part
-                dist_to_start = abs(target_time - part.start_time)
-                # Distance to end of part
-                dist_to_end = abs(target_time - (part.start_time + part.duration))
-
-                min_dist = min(dist_to_start, dist_to_end)
-                if min_dist < closest_distance:
-                    closest_distance = min_dist
-                    target_part = part
-                    target_part_index = i
+        # If beyond all parts, use the last part
+        if not target_part and self.song_structure.parts:
+            target_part = self.song_structure.parts[-1]
+            target_part_index = len(self.song_structure.parts) - 1
 
         if not target_part:
             return target_time
 
-        # Calculate candidate beat times from current part
+        # Calculate candidate beat times - must match grid drawing exactly
         candidates = []
+        seconds_per_beat = 60.0 / target_part.bpm
+        total_beats_in_part = int(target_part.get_total_beats())
 
-        # Get beats from current part
+        # Calculate which beat we're closest to within the part
         time_in_part = target_time - target_part.start_time
-        beats_per_bar = target_part.get_beats_per_bar()
-        total_beats_in_part = target_part.num_bars * beats_per_bar
+        beat_in_part_float = time_in_part / seconds_per_beat
 
-        if 0 <= time_in_part <= target_part.duration:
-            # We're within the current part
-            beats_at_target = self._integrate_beats_in_part(target_part, 0.0, time_in_part)
+        floor_beat = int(beat_in_part_float)
+        ceil_beat = floor_beat + 1
 
-            # Add candidate for floor and ceiling beats
-            floor_beat = int(beats_at_target)
-            ceil_beat = floor_beat + 1
+        # Add floor and ceil beats from current part
+        for beat in [floor_beat, ceil_beat]:
+            if 0 <= beat <= total_beats_in_part:
+                candidate_time = target_part.start_time + (beat * seconds_per_beat)
+                candidates.append(candidate_time)
 
-            for beat in [floor_beat, ceil_beat]:
-                if 0 <= beat <= total_beats_in_part:
-                    time_for_beat = self._find_time_for_beats_in_part(target_part, beat)
-                    candidate_time = target_part.start_time + time_for_beat
-                    candidates.append(candidate_time)
+        # For boundary handling - always include part start time
+        candidates.append(target_part.start_time)
 
-        # Also check boundary beats from adjacent parts
-        # Check previous part's last beat
+        # Include the last beat of this part (calculated same as grid)
+        last_beat_time = target_part.start_time + (total_beats_in_part * seconds_per_beat)
+        candidates.append(last_beat_time)
+
+        # Check adjacent parts for boundary beats
         if target_part_index > 0:
             prev_part = self.song_structure.parts[target_part_index - 1]
-            prev_total_beats = prev_part.num_bars * prev_part.get_beats_per_bar()
-            prev_last_beat_time = prev_part.start_time + prev_part.duration
-            candidates.append(prev_last_beat_time)
+            prev_seconds_per_beat = 60.0 / prev_part.bpm
+            prev_total_beats = int(prev_part.get_total_beats())
+            # Last beat of previous part
+            prev_last_beat = prev_part.start_time + (prev_total_beats * prev_seconds_per_beat)
+            candidates.append(prev_last_beat)
 
-        # Check next part's first beat
         if target_part_index < len(self.song_structure.parts) - 1:
             next_part = self.song_structure.parts[target_part_index + 1]
-            next_first_beat_time = next_part.start_time
-            candidates.append(next_first_beat_time)
-
-        # Add current part's first and last beats
-        candidates.append(target_part.start_time)  # First beat
-        candidates.append(target_part.start_time + target_part.duration)  # Last beat
+            candidates.append(next_part.start_time)
 
         # Remove duplicates and find closest
         candidates = list(set(candidates))
@@ -563,17 +491,17 @@ class MasterTimelineWidget(TimelineWidget):
 
         # Find the closest candidate
         closest_time = min(candidates, key=lambda t: abs(t - target_time))
+
+        # Debug: show all candidates when near part boundaries
+        if target_part_index > 0 or (target_part_index == 0 and target_time > target_part.start_time + target_part.duration - 2):
+            print(f"DEBUG CANDIDATES: target_time={target_time:.6f}, part={target_part.name}, candidates={[f'{c:.6f}' for c in sorted(candidates)]}, chosen={closest_time:.6f}")
+
         return closest_time
 
     def _get_time_for_beat_in_part(self, part, beat_index: int) -> float:
         """Return the absolute time for a beat index inside a part"""
-        if part.transition == "instant":
-            seconds_per_beat = 60.0 / part.bpm
-            return part.start_time + (beat_index * seconds_per_beat)
-
-        # Gradual transition - find time based on accumulated beats
-        beat_time_in_part = self._find_time_for_beats_in_part(part, beat_index)
-        return part.start_time + beat_time_in_part
+        seconds_per_beat = 60.0 / part.bpm
+        return part.start_time + (beat_index * seconds_per_beat)
 
 
 
