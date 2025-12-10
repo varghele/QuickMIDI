@@ -101,39 +101,29 @@ class MidiBlockWidget(QFrame):
         """)
 
     def setup_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(3, 2, 3, 2)
-        layout.setSpacing(1)
-
-        # Block name/type
-        self.name_label = QLabel(self.block.name)
-        self.name_label.setStyleSheet("color: white; font-weight: bold; font-size: 7px;")
-        self.name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.name_label)
-
-        # Message type and values - main info display
-        self.info_label = QLabel(self.get_block_info())
-        self.info_label.setStyleSheet("color: white; font-weight: bold; font-size: 10px;")
+        # Create a simple centered label for MIDI info
+        self.info_label = QLabel(self.get_simple_info(), self)
+        self.info_label.setStyleSheet("""
+            color: black;
+            font-weight: bold;
+            font-size: 12px;
+            background-color: rgba(255, 255, 255, 0.7);
+            padding: 2px;
+            border-radius: 3px;
+        """)
         self.info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.info_label.setWordWrap(True)
-        layout.addWidget(self.info_label, 1)  # Give it stretch factor
-
-        # Time info
-        self.time_label = QLabel(f"{self.block.start_time:.2f}s")
-        self.time_label.setStyleSheet("color: white; font-size: 6px;")
-        self.time_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.time_label)
 
         # Remove button (small, top-right corner)
-        self.remove_button = QPushButton("×")
-        self.remove_button.setFixedSize(12, 12)
+        self.remove_button = QPushButton("×", self)
+        self.remove_button.setFixedSize(14, 14)
         self.remove_button.setStyleSheet("""
             QPushButton {
                 background-color: #f44336;
                 color: white;
                 border: none;
-                border-radius: 6px;
-                font-size: 8px;
+                border-radius: 7px;
+                font-size: 10px;
                 font-weight: bold;
             }
             QPushButton:hover {
@@ -142,15 +132,33 @@ class MidiBlockWidget(QFrame):
         """)
         self.remove_button.clicked.connect(lambda: self.remove_requested.emit(self))
 
-        # Position remove button in top-right corner
-        self.remove_button.setParent(self)
-        self.remove_button.move(self.width() - 15, 3)
-
     def resizeEvent(self, event):
+        """Handle resize to position labels"""
         super().resizeEvent(event)
+
+        # Center the info label
+        if hasattr(self, 'info_label'):
+            label_width = min(self.width() - 10, 200)
+            label_height = 40
+            x = (self.width() - label_width) // 2
+            y = (self.height() - label_height) // 2
+            self.info_label.setGeometry(x, y, label_width, label_height)
+
         # Keep remove button in top-right corner
         if hasattr(self, 'remove_button'):
-            self.remove_button.move(self.width() - 15, 3)
+            self.remove_button.move(self.width() - 16, 2)
+
+    def get_simple_info(self):
+        """Get simple display string showing MIDI type and values"""
+        if self.block.message_type == MidiMessageType.PROGRAM_CHANGE:
+            return f"PC\n{self.block.value1}"
+        elif self.block.message_type == MidiMessageType.CONTROL_CHANGE:
+            return f"CC\n{self.block.value1}={self.block.value2}"
+        elif self.block.message_type == MidiMessageType.NOTE_ON:
+            return f"NON\n{self.block.value1}"
+        elif self.block.message_type == MidiMessageType.NOTE_OFF:
+            return f"NOF\n{self.block.value1}"
+        return "MIDI"
 
     def get_block_info(self, compact=False):
         """Get display string for block info
@@ -192,19 +200,9 @@ class MidiBlockWidget(QFrame):
             width = max(3, int(self.block.duration * self.grid_size))
             self.setFixedWidth(width)
 
-            # Update labels based on width
-            if width < 60:
-                # Very narrow - hide name, show compact info
-                self.name_label.hide()
-                self.info_label.setText(self.get_block_info(compact=True))
-                self.time_label.hide()
-            else:
-                # Wide enough - show all labels
-                self.name_label.show()
-                self.name_label.setText(self.block.name if width > 100 else "")
-                self.info_label.setText(self.get_block_info(compact=False))
-                self.time_label.show()
-                self.time_label.setText(f"{self.block.start_time:.2f}s")
+            # Update info label text
+            if hasattr(self, 'info_label'):
+                self.info_label.setText(self.get_simple_info())
 
     def set_grid_size(self, pixels_per_second):
         """Set the grid size for positioning calculations (pixels per second)"""
@@ -303,8 +301,6 @@ class MidiBlockWidget(QFrame):
             # Update block start time based on position
             new_start_time = new_pos.x() / self.grid_size
             self.block.start_time = max(0, new_start_time)
-            if hasattr(self, 'time_label') and self.time_label.isVisible():
-                self.time_label.setText(f"{self.block.start_time:.2f}s")
 
         super().mouseMoveEvent(event)
 
@@ -349,8 +345,8 @@ class MidiBlockWidget(QFrame):
 
     def update_display(self):
         """Update the widget display after block changes"""
-        self.name_label.setText(self.block.name)
-        self.info_label.setText(self.get_block_info())
+        if hasattr(self, 'info_label'):
+            self.info_label.setText(self.get_simple_info())
         self.apply_color_scheme()  # Update colors in case message type changed
         self.update_position()
 
