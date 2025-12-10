@@ -292,6 +292,28 @@ class TimelineWidget(QWidget):
         self.playhead_position = position
         self.update()
 
+    def draw_song_structure_background(self, painter, width, height):
+        """Draw song structure parts as subtle colored backgrounds"""
+        if not (hasattr(self, 'song_structure') and self.song_structure and
+                hasattr(self.song_structure, 'parts') and self.song_structure.parts):
+            return
+
+        try:
+            for part in self.song_structure.parts:
+                start_x = self.time_to_pixel(part.start_time)
+                end_x = self.time_to_pixel(part.start_time + part.duration)
+
+                if end_x < 0 or start_x > width:
+                    continue
+
+                # Draw colored background with lower alpha for subtle effect
+                color = QColor(part.color)
+                color.setAlpha(40)  # More subtle than master timeline (which uses 100)
+                painter.fillRect(int(start_x), 0, int(end_x - start_x), height, color)
+
+        except Exception as e:
+            print(f"Error drawing song structure background in lane: {e}")
+
     def paintEvent(self, event):
         """Draw the timeline - can be extended by subclasses"""
         super().paintEvent(event)
@@ -301,6 +323,9 @@ class TimelineWidget(QWidget):
 
         width = self.width()
         height = self.height()
+
+        # Draw song structure backgrounds first (subtle colors)
+        self.draw_song_structure_background(painter, width, height)
 
         # Draw grid (can be overridden)
         self.draw_grid(painter, width, height)
