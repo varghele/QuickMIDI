@@ -22,26 +22,15 @@ class MidiBlockWidget(QFrame):
         self.snap_to_grid = True
         self.grid_size = 60  # pixels per second (time-based layout)
         self.resize_edge_margin = 8  # pixels from right edge to detect resize
+        self.has_moved = False  # Track if actual movement occurred
 
         self.setFrameStyle(QFrame.Shape.Box)
         self.setLineWidth(1)
         self.setFixedHeight(50)
         self.setMinimumWidth(3)  # Allow very small widths for zoomed-out view
-        self.setStyleSheet("""
-            MidiBlockWidget {
-                background-color: #4CAF50;
-                border: 2px solid #45a049;
-                border-radius: 5px;
-            }
-            MidiBlockWidget:hover {
-                background-color: #5CBF60;
-            }
-            MidiBlockWidget[dragging="true"] {
-                background-color: #66BB6A;
-                border: 2px solid #4CAF50;
-                opacity: 0.8;
-            }
-        """)
+
+        # Apply color scheme based on message type
+        self.apply_color_scheme()
 
         self.setup_ui()
         self.update_position()
@@ -49,26 +38,89 @@ class MidiBlockWidget(QFrame):
         # Enable mouse tracking for cursor changes
         self.setMouseTracking(True)
 
+    def get_color_scheme(self):
+        """Get color scheme based on MIDI message type"""
+        if self.block.message_type == MidiMessageType.PROGRAM_CHANGE:
+            # Blue for Program Change
+            return {
+                'bg': '#2196F3',
+                'border': '#1976D2',
+                'hover': '#42A5F5',
+                'dragging': '#64B5F6'
+            }
+        elif self.block.message_type == MidiMessageType.CONTROL_CHANGE:
+            # Green for Control Change
+            return {
+                'bg': '#4CAF50',
+                'border': '#45a049',
+                'hover': '#5CBF60',
+                'dragging': '#66BB6A'
+            }
+        elif self.block.message_type == MidiMessageType.NOTE_ON:
+            # Orange for Note On
+            return {
+                'bg': '#FF9800',
+                'border': '#F57C00',
+                'hover': '#FFB74D',
+                'dragging': '#FFCC80'
+            }
+        elif self.block.message_type == MidiMessageType.NOTE_OFF:
+            # Red for Note Off
+            return {
+                'bg': '#F44336',
+                'border': '#D32F2F',
+                'hover': '#EF5350',
+                'dragging': '#E57373'
+            }
+        else:
+            # Default gray for unknown types
+            return {
+                'bg': '#9E9E9E',
+                'border': '#757575',
+                'hover': '#BDBDBD',
+                'dragging': '#E0E0E0'
+            }
+
+    def apply_color_scheme(self):
+        """Apply color scheme to the widget"""
+        colors = self.get_color_scheme()
+        self.setStyleSheet(f"""
+            MidiBlockWidget {{
+                background-color: {colors['bg']};
+                border: 2px solid {colors['border']};
+                border-radius: 5px;
+            }}
+            MidiBlockWidget:hover {{
+                background-color: {colors['hover']};
+            }}
+            MidiBlockWidget[dragging="true"] {{
+                background-color: {colors['dragging']};
+                border: 2px solid {colors['border']};
+                opacity: 0.8;
+            }}
+        """)
+
     def setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(5, 2, 5, 2)
+        layout.setContentsMargins(3, 2, 3, 2)
         layout.setSpacing(1)
 
         # Block name/type
         self.name_label = QLabel(self.block.name)
-        self.name_label.setStyleSheet("color: white; font-weight: bold; font-size: 9px;")
+        self.name_label.setStyleSheet("color: white; font-weight: bold; font-size: 7px;")
         self.name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.name_label)
 
-        # Message type and values
+        # Message type and values - main info display
         self.info_label = QLabel(self.get_block_info())
-        self.info_label.setStyleSheet("color: white; font-size: 8px;")
+        self.info_label.setStyleSheet("color: white; font-weight: bold; font-size: 10px;")
         self.info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.info_label)
+        self.info_label.setWordWrap(True)
+        layout.addWidget(self.info_label, 1)  # Give it stretch factor
 
         # Time info
         self.time_label = QLabel(f"{self.block.start_time:.2f}s")
-        self.time_label.setStyleSheet("color: white; font-size: 7px;")
+        self.time_label.setStyleSheet("color: white; font-size: 6px;")
         self.time_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.time_label)
 
@@ -100,17 +152,34 @@ class MidiBlockWidget(QFrame):
         if hasattr(self, 'remove_button'):
             self.remove_button.move(self.width() - 15, 3)
 
-    def get_block_info(self):
-        """Get display string for block info"""
-        if self.block.message_type == MidiMessageType.PROGRAM_CHANGE:
-            return f"PC: {self.block.value1}"
-        elif self.block.message_type == MidiMessageType.CONTROL_CHANGE:
-            return f"CC{self.block.value1}: {self.block.value2}"
-        elif self.block.message_type == MidiMessageType.NOTE_ON:
-            return f"Note: {self.block.value1}"
-        elif self.block.message_type == MidiMessageType.NOTE_OFF:
-            return f"Note Off: {self.block.value1}"
-        return "MIDI"
+    def get_block_info(self, compact=False):
+        """Get display string for block info
+
+        Args:
+            compact: If True, return abbreviated version for narrow blocks
+        """
+        if compact:
+            # Compact version for narrow blocks
+            if self.block.message_type == MidiMessageType.PROGRAM_CHANGE:
+                return f"PC:{self.block.value1}"
+            elif self.block.message_type == MidiMessageType.CONTROL_CHANGE:
+                return f"CC{self.block.value1}={self.block.value2}"
+            elif self.block.message_type == MidiMessageType.NOTE_ON:
+                return f"NON:{self.block.value1}"
+            elif self.block.message_type == MidiMessageType.NOTE_OFF:
+                return f"NOF:{self.block.value1}"
+            return "MIDI"
+        else:
+            # Full version for wider blocks
+            if self.block.message_type == MidiMessageType.PROGRAM_CHANGE:
+                return f"PC: {self.block.value1}"
+            elif self.block.message_type == MidiMessageType.CONTROL_CHANGE:
+                return f"CC{self.block.value1} = {self.block.value2}"
+            elif self.block.message_type == MidiMessageType.NOTE_ON:
+                return f"NON: {self.block.value1}\nVel: {self.block.value2}"
+            elif self.block.message_type == MidiMessageType.NOTE_OFF:
+                return f"NOF: {self.block.value1}\nVel: {self.block.value2}"
+            return "MIDI"
 
     def update_position(self):
         """Update widget position based on block start time"""
@@ -123,8 +192,19 @@ class MidiBlockWidget(QFrame):
             width = max(3, int(self.block.duration * self.grid_size))
             self.setFixedWidth(width)
 
-            # Update time label
-            self.time_label.setText(f"{self.block.start_time:.2f}s")
+            # Update labels based on width
+            if width < 60:
+                # Very narrow - hide name, show compact info
+                self.name_label.hide()
+                self.info_label.setText(self.get_block_info(compact=True))
+                self.time_label.hide()
+            else:
+                # Wide enough - show all labels
+                self.name_label.show()
+                self.name_label.setText(self.block.name if width > 100 else "")
+                self.info_label.setText(self.get_block_info(compact=False))
+                self.time_label.show()
+                self.time_label.setText(f"{self.block.start_time:.2f}s")
 
     def set_grid_size(self, pixels_per_second):
         """Set the grid size for positioning calculations (pixels per second)"""
@@ -141,6 +221,7 @@ class MidiBlockWidget(QFrame):
 
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.MouseButton.LeftButton:
+            self.has_moved = False  # Reset movement flag
             if self.is_near_right_edge(event.pos()):
                 # Start resizing
                 self.resizing = True
@@ -165,6 +246,7 @@ class MidiBlockWidget(QFrame):
 
         # Handle resizing
         if self.resizing and (event.buttons() & Qt.MouseButton.LeftButton):
+            self.has_moved = True  # Mark that movement occurred
             # Calculate new width based on mouse movement
             delta_x = event.pos().x() - self.drag_start_pos.x()
             new_width = self.resize_start_width + delta_x
@@ -194,6 +276,7 @@ class MidiBlockWidget(QFrame):
 
         # Handle dragging
         elif self.dragging and (event.buttons() & Qt.MouseButton.LeftButton):
+            self.has_moved = True  # Mark that movement occurred
             # Calculate new position
             delta = event.pos() - self.drag_start_pos
             new_pos = self.pos() + delta
@@ -220,7 +303,8 @@ class MidiBlockWidget(QFrame):
             # Update block start time based on position
             new_start_time = new_pos.x() / self.grid_size
             self.block.start_time = max(0, new_start_time)
-            self.time_label.setText(f"{self.block.start_time:.2f}s")
+            if hasattr(self, 'time_label') and self.time_label.isVisible():
+                self.time_label.setText(f"{self.block.start_time:.2f}s")
 
         super().mouseMoveEvent(event)
 
@@ -246,7 +330,8 @@ class MidiBlockWidget(QFrame):
         super().mouseReleaseEvent(event)
 
     def mouseDoubleClickEvent(self, event: QMouseEvent):
-        if event.button() == Qt.MouseButton.LeftButton and not self.dragging and not self.resizing:
+        # Allow editing if we haven't actually moved/resized (just clicked)
+        if event.button() == Qt.MouseButton.LeftButton and not self.has_moved:
             self.edit_block()
         super().mouseDoubleClickEvent(event)
 
@@ -266,6 +351,7 @@ class MidiBlockWidget(QFrame):
         """Update the widget display after block changes"""
         self.name_label.setText(self.block.name)
         self.info_label.setText(self.get_block_info())
+        self.apply_color_scheme()  # Update colors in case message type changed
         self.update_position()
 
 
