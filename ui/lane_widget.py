@@ -13,6 +13,7 @@ class TimelineWidget(QWidget):
     """Custom timeline widget with grid drawing and snap functionality"""
 
     zoom_changed = pyqtSignal(float)  # New signal for zoom changes
+    playhead_moved = pyqtSignal(float)  # Signal for playhead position changes
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -22,6 +23,7 @@ class TimelineWidget(QWidget):
         self.pixels_per_second = self.base_pixels_per_second
         self.snap_to_grid = True
         self.playhead_position = 0.0  # Position in seconds
+        self.dragging_playhead = False  # Track if we're dragging the playhead
         self.min_zoom = 0.1
         self.max_zoom = 5.0
         self.song_structure = None
@@ -292,6 +294,39 @@ class TimelineWidget(QWidget):
         self.playhead_position = position
         self.update()
 
+    def mousePressEvent(self, event):
+        """Handle mouse press for playhead dragging"""
+        from PyQt6.QtCore import Qt
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.dragging_playhead = True
+            self.update_playhead_from_mouse(event.pos().x())
+
+    def mouseMoveEvent(self, event):
+        """Handle mouse move for playhead dragging"""
+        from PyQt6.QtCore import Qt
+        if self.dragging_playhead:
+            self.update_playhead_from_mouse(event.pos().x())
+
+    def mouseReleaseEvent(self, event):
+        """Handle mouse release to stop playhead dragging"""
+        from PyQt6.QtCore import Qt
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.dragging_playhead = False
+
+    def update_playhead_from_mouse(self, x_pos: int):
+        """Update playhead position based on mouse position"""
+        # Convert pixel position to time
+        time_position = self.pixel_to_time(x_pos)
+
+        # Apply snap to grid if enabled
+        if self.snap_to_grid:
+            time_position = self.find_nearest_beat_time(time_position)
+
+        time_position = max(0.0, time_position)
+        self.playhead_position = time_position
+        self.playhead_moved.emit(time_position)
+        self.update()
+
     def draw_song_structure_background(self, painter, width, height):
         """Draw song structure parts as subtle colored backgrounds"""
         if not (hasattr(self, 'song_structure') and self.song_structure and
@@ -338,6 +373,7 @@ class LaneWidget(QFrame):
     remove_requested = pyqtSignal(object)
     scroll_position_changed = pyqtSignal(int)  # Emits horizontal scroll position
     zoom_changed = pyqtSignal(float)  # Signal for zoom changes
+    playhead_moved = pyqtSignal(float)  # Signal for playhead position changes
 
     def __init__(self, lane: Lane, parent=None):
         super().__init__(parent)
@@ -443,6 +479,7 @@ class LaneWidget(QFrame):
         self.timeline_widget = TimelineWidget()
         self.timeline_widget.zoom_changed.connect(self.zoom_changed.emit)  # Connect zoom signal
         self.timeline_widget.zoom_changed.connect(self.on_timeline_zoom_changed)  # Update MIDI blocks on zoom
+        self.timeline_widget.playhead_moved.connect(self.playhead_moved.emit)  # Forward playhead changes
         #self.timeline_widget.setMinimumWidth(2000)  # Wide timeline
 
         if isinstance(self.lane, MidiLane):

@@ -198,6 +198,7 @@ class MainWindow(QMainWindow):
         lane_widget.remove_requested.connect(self.remove_lane)
         lane_widget.scroll_position_changed.connect(self.sync_master_timeline_scroll)
         lane_widget.zoom_changed.connect(self.sync_master_timeline_zoom)
+        lane_widget.playhead_moved.connect(self.on_playhead_moved_by_user)
 
         # Pass song structure if it exists
         if hasattr(self.project, 'song_structure') and self.project.song_structure:
@@ -216,6 +217,7 @@ class MainWindow(QMainWindow):
         lane_widget.remove_requested.connect(self.remove_lane)
         lane_widget.scroll_position_changed.connect(self.sync_master_timeline_scroll)
         lane_widget.zoom_changed.connect(self.sync_master_timeline_zoom)
+        lane_widget.playhead_moved.connect(self.on_playhead_moved_by_user)
 
         # Pass song structure if it exists
         if hasattr(self.project, 'song_structure') and self.project.song_structure:
@@ -276,6 +278,9 @@ class MainWindow(QMainWindow):
         for lane in self.project.lanes:
             lane_widget = LaneWidget(lane, self)
             lane_widget.remove_requested.connect(self.remove_lane)
+            lane_widget.scroll_position_changed.connect(self.sync_master_timeline_scroll)
+            lane_widget.zoom_changed.connect(self.sync_master_timeline_zoom)
+            lane_widget.playhead_moved.connect(self.on_playhead_moved_by_user)
             # Pass song structure if it exists
             if hasattr(self.project, 'song_structure') and self.project.song_structure:
                 lane_widget.set_song_structure(self.project.song_structure)
