@@ -9,20 +9,24 @@ from core.midi_block import MidiBlock, MidiMessageType
 class MidiBlockWidget(QFrame):
     remove_requested = pyqtSignal(object)
     position_changed = pyqtSignal(object, float)  # Emits self and new start_time
+    duration_changed = pyqtSignal(object, float)  # Emits self and new duration
 
     def __init__(self, block: MidiBlock, parent=None):
         super().__init__(parent)
         self.block = block
         self.parent_widget = parent
         self.dragging = False
+        self.resizing = False
         self.drag_start_pos = QPoint()
+        self.resize_start_width = 0
         self.snap_to_grid = True
         self.grid_size = 60  # pixels per second (time-based layout)
+        self.resize_edge_margin = 8  # pixels from right edge to detect resize
 
         self.setFrameStyle(QFrame.Shape.Box)
         self.setLineWidth(1)
         self.setFixedHeight(50)
-        self.setMinimumWidth(80)
+        self.setMinimumWidth(3)  # Allow very small widths for zoomed-out view
         self.setStyleSheet("""
             MidiBlockWidget {
                 background-color: #4CAF50;
@@ -41,6 +45,9 @@ class MidiBlockWidget(QFrame):
 
         self.setup_ui()
         self.update_position()
+
+        # Enable mouse tracking for cursor changes
+        self.setMouseTracking(True)
 
     def setup_ui(self):
         layout = QVBoxLayout(self)
@@ -112,8 +119,8 @@ class MidiBlockWidget(QFrame):
             x_pos = int(self.block.start_time * self.grid_size)
             self.move(x_pos, self.y())
 
-            # Update width based on duration
-            width = max(80, int(self.block.duration * self.grid_size))
+            # Update width based on duration (minimum 3px to stay visible)
+            width = max(3, int(self.block.duration * self.grid_size))
             self.setFixedWidth(width)
 
             # Update time label
@@ -128,17 +135,65 @@ class MidiBlockWidget(QFrame):
         """Enable or disable snap to grid"""
         self.snap_to_grid = snap
 
+    def is_near_right_edge(self, pos: QPoint) -> bool:
+        """Check if mouse position is near the right edge for resizing"""
+        return self.width() - pos.x() <= self.resize_edge_margin
+
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.MouseButton.LeftButton:
-            self.dragging = True
-            self.drag_start_pos = event.pos()
-            self.setProperty("dragging", "true")
-            self.setStyleSheet(self.styleSheet())  # Refresh style
-            self.raise_()  # Bring to front while dragging
+            if self.is_near_right_edge(event.pos()):
+                # Start resizing
+                self.resizing = True
+                self.drag_start_pos = event.pos()
+                self.resize_start_width = self.width()
+            else:
+                # Start dragging
+                self.dragging = True
+                self.drag_start_pos = event.pos()
+                self.setProperty("dragging", "true")
+                self.setStyleSheet(self.styleSheet())  # Refresh style
+            self.raise_()  # Bring to front while dragging/resizing
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent):
-        if self.dragging and (event.buttons() & Qt.MouseButton.LeftButton):
+        # Update cursor based on position (when not dragging/resizing)
+        if not self.dragging and not self.resizing:
+            if self.is_near_right_edge(event.pos()):
+                self.setCursor(Qt.CursorShape.SizeHorCursor)
+            else:
+                self.setCursor(Qt.CursorShape.ArrowCursor)
+
+        # Handle resizing
+        if self.resizing and (event.buttons() & Qt.MouseButton.LeftButton):
+            # Calculate new width based on mouse movement
+            delta_x = event.pos().x() - self.drag_start_pos.x()
+            new_width = self.resize_start_width + delta_x
+
+            # Apply minimum width constraint (larger for manual resize to allow edge grabbing)
+            new_width = max(15, new_width)
+
+            # Apply snap to grid if enabled (beat-based)
+            if self.snap_to_grid and self.parent_widget and hasattr(self.parent_widget, 'find_nearest_beat_time'):
+                # Calculate the end time based on new width
+                new_duration = new_width / self.grid_size
+                end_time = self.block.start_time + new_duration
+
+                # Snap the end time to nearest beat
+                snapped_end_time = self.parent_widget.find_nearest_beat_time(end_time)
+
+                # Calculate snapped duration and width
+                snapped_duration = max(0.1, snapped_end_time - self.block.start_time)
+                new_width = int(snapped_duration * self.grid_size)
+
+            # Update widget width
+            self.setFixedWidth(new_width)
+
+            # Update block duration
+            new_duration = new_width / self.grid_size
+            self.block.duration = max(0.1, new_duration)  # Minimum 0.1 second duration
+
+        # Handle dragging
+        elif self.dragging and (event.buttons() & Qt.MouseButton.LeftButton):
             # Calculate new position
             delta = event.pos() - self.drag_start_pos
             new_pos = self.pos() + delta
@@ -149,10 +204,16 @@ class MidiBlockWidget(QFrame):
                 new_pos.setX(max(0, min(new_pos.x(), parent_rect.width() - self.width())))
                 new_pos.setY(self.y())  # Keep Y position fixed
 
-            # Apply snap to grid if enabled
-            if self.snap_to_grid:
-                grid_x = round(new_pos.x() / self.grid_size) * self.grid_size
-                new_pos.setX(int(grid_x))
+            # Apply snap to grid if enabled (beat-based)
+            if self.snap_to_grid and self.parent_widget and hasattr(self.parent_widget, 'find_nearest_beat_time'):
+                # Convert position to time
+                new_start_time = new_pos.x() / self.grid_size
+
+                # Snap to nearest beat
+                snapped_start_time = self.parent_widget.find_nearest_beat_time(new_start_time)
+
+                # Convert back to position
+                new_pos.setX(int(snapped_start_time * self.grid_size))
 
             self.move(new_pos)
 
@@ -164,20 +225,36 @@ class MidiBlockWidget(QFrame):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent):
-        if event.button() == Qt.MouseButton.LeftButton and self.dragging:
-            self.dragging = False
-            self.setProperty("dragging", "false")
-            self.setStyleSheet(self.styleSheet())  # Refresh style
+        if event.button() == Qt.MouseButton.LeftButton:
+            if self.dragging:
+                self.dragging = False
+                self.setProperty("dragging", "false")
+                self.setStyleSheet(self.styleSheet())  # Refresh style
 
-            # Emit position changed signal
-            self.position_changed.emit(self, self.block.start_time)
+                # Emit position changed signal
+                self.position_changed.emit(self, self.block.start_time)
+
+            elif self.resizing:
+                self.resizing = False
+
+                # Emit duration changed signal
+                self.duration_changed.emit(self, self.block.duration)
+
+            # Reset cursor
+            self.setCursor(Qt.CursorShape.ArrowCursor)
 
         super().mouseReleaseEvent(event)
 
     def mouseDoubleClickEvent(self, event: QMouseEvent):
-        if event.button() == Qt.MouseButton.LeftButton and not self.dragging:
+        if event.button() == Qt.MouseButton.LeftButton and not self.dragging and not self.resizing:
             self.edit_block()
         super().mouseDoubleClickEvent(event)
+
+    def leaveEvent(self, event):
+        """Reset cursor when mouse leaves the widget"""
+        if not self.dragging and not self.resizing:
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+        super().leaveEvent(event)
 
     def edit_block(self):
         """Open edit dialog for the MIDI block"""

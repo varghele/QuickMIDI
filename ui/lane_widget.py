@@ -127,6 +127,81 @@ class TimelineWidget(QWidget):
         """Convert pixel position to time in seconds (time-based layout)"""
         return pixel / self.pixels_per_second
 
+    def find_nearest_beat_time(self, target_time: float) -> float:
+        """Find the nearest beat position using song structure if available"""
+        if not (hasattr(self, 'song_structure') and self.song_structure and
+                hasattr(self.song_structure, 'parts') and self.song_structure.parts):
+            # Fallback to simple beat snapping with default BPM
+            beat_duration = 60.0 / self.bpm
+            nearest_beat = round(target_time / beat_duration)
+            return nearest_beat * beat_duration
+
+        # Find which part contains the target time
+        target_part = None
+        target_part_index = -1
+
+        for i, part in enumerate(self.song_structure.parts):
+            if part.start_time <= target_time < part.start_time + part.duration:
+                target_part = part
+                target_part_index = i
+                break
+
+        # If beyond all parts, use the last part
+        if not target_part and self.song_structure.parts:
+            target_part = self.song_structure.parts[-1]
+            target_part_index = len(self.song_structure.parts) - 1
+
+        if not target_part:
+            return target_time
+
+        # Calculate candidate beat times
+        candidates = []
+        seconds_per_beat = 60.0 / target_part.bpm
+        total_beats_in_part = int(target_part.get_total_beats())
+
+        # Calculate which beat we're closest to within the part
+        time_in_part = target_time - target_part.start_time
+        beat_in_part_float = time_in_part / seconds_per_beat
+
+        floor_beat = int(beat_in_part_float)
+        ceil_beat = floor_beat + 1
+
+        # Add floor and ceil beats from current part
+        for beat in [floor_beat, ceil_beat]:
+            if 0 <= beat <= total_beats_in_part:
+                candidate_time = target_part.start_time + (beat * seconds_per_beat)
+                candidates.append(candidate_time)
+
+        # Always include part start time
+        candidates.append(target_part.start_time)
+
+        # Include the last beat of this part
+        last_beat_time = target_part.start_time + (total_beats_in_part * seconds_per_beat)
+        candidates.append(last_beat_time)
+
+        # Check adjacent parts for boundary beats
+        if target_part_index > 0:
+            prev_part = self.song_structure.parts[target_part_index - 1]
+            prev_seconds_per_beat = 60.0 / prev_part.bpm
+            prev_total_beats = int(prev_part.get_total_beats())
+            prev_last_beat = prev_part.start_time + (prev_total_beats * prev_seconds_per_beat)
+            candidates.append(prev_last_beat)
+
+        if target_part_index < len(self.song_structure.parts) - 1:
+            next_part = self.song_structure.parts[target_part_index + 1]
+            candidates.append(next_part.start_time)
+
+        # Remove duplicates and find closest
+        candidates = list(set(candidates))
+
+        if not candidates:
+            return target_time
+
+        # Find the closest candidate
+        closest_time = min(candidates, key=lambda t: abs(t - target_time))
+
+        return closest_time
+
     def draw_playhead(self, painter, width, height):
         """Draw playhead at time position"""
         playhead_x = round(self.time_to_pixel(self.playhead_position))
@@ -342,6 +417,7 @@ class LaneWidget(QFrame):
         self.timeline_scroll = QScrollArea()
         self.timeline_widget = TimelineWidget()
         self.timeline_widget.zoom_changed.connect(self.zoom_changed.emit)  # Connect zoom signal
+        self.timeline_widget.zoom_changed.connect(self.on_timeline_zoom_changed)  # Update MIDI blocks on zoom
         #self.timeline_widget.setMinimumWidth(2000)  # Wide timeline
 
         if isinstance(self.lane, MidiLane):
@@ -475,6 +551,7 @@ class LaneWidget(QFrame):
         block_widget = MidiBlockWidget(block, self.timeline_widget)
         block_widget.remove_requested.connect(self.remove_midi_block_widget)
         block_widget.position_changed.connect(self.on_block_position_changed)
+        block_widget.duration_changed.connect(self.on_block_duration_changed)
 
         # Set grid properties
         block_widget.set_grid_size(self.timeline_widget.pixels_per_second)
@@ -499,6 +576,20 @@ class LaneWidget(QFrame):
         # The block's start_time is already updated in the widget
         # We could add additional logic here if needed
         pass
+
+    def on_block_duration_changed(self, block_widget, new_duration):
+        """Handle when a MIDI block is resized"""
+        # The block's duration is already updated in the widget
+        # We could add additional logic here if needed (e.g., collision detection)
+        pass
+
+    def on_timeline_zoom_changed(self, zoom_factor):
+        """Handle timeline zoom changes - update all MIDI block positions and sizes"""
+        new_pixels_per_second = self.timeline_widget.pixels_per_second
+
+        # Update all MIDI blocks to reflect new zoom level
+        for block_widget in self.midi_block_widgets:
+            block_widget.set_grid_size(new_pixels_per_second)
 
     def load_audio_file(self):
         file_path, _ = QFileDialog.getOpenFileName(
