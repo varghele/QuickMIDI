@@ -25,6 +25,7 @@ class PlaybackEngine(QObject):
         self.playback_timer.setInterval(16)  # ~60 FPS (16ms)
 
         self.lanes: List[Lane] = []
+        self.audio_synchronizer = None  # Set externally from main_window
 
     def set_song_structure(self, song_structure):
         """Set song structure for BPM-aware playback"""
@@ -33,6 +34,11 @@ class PlaybackEngine(QObject):
     def set_lanes(self, lanes: List[Lane]):
         """Set the lanes to be controlled by this engine"""
         self.lanes = lanes
+
+        # Update audio lanes in synchronizer
+        if self.audio_synchronizer:
+            audio_lanes = [lane for lane in lanes if isinstance(lane, AudioLane)]
+            self.audio_synchronizer.update_lanes(audio_lanes)
 
     def set_bpm(self, bpm: float):
         """Set the BPM for playback calculations"""
@@ -49,6 +55,10 @@ class PlaybackEngine(QObject):
             self.playback_timer.start()
             self.playback_started.emit()
 
+            # Start audio playback
+            if self.audio_synchronizer:
+                self.audio_synchronizer.on_play_requested(self.current_position)
+
     def halt(self):
         """Pause playback at current position"""
         if self.is_playing:
@@ -56,10 +66,19 @@ class PlaybackEngine(QObject):
             self.playback_timer.stop()
             self.playback_halted.emit()
 
+            # Pause audio playback
+            if self.audio_synchronizer:
+                self.audio_synchronizer.on_pause_requested()
+
     def stop(self):
         """Stop playback and reset to beginning"""
         self.is_playing = False
         self.playback_timer.stop()
+
+        # Stop audio playback first
+        if self.audio_synchronizer:
+            self.audio_synchronizer.on_stop_requested()
+
         self.set_position(0.0)
         self.playback_stopped.emit()
 
@@ -72,6 +91,10 @@ class PlaybackEngine(QObject):
         """
         self.current_position = max(0.0, position)
         self.position_changed.emit(self.current_position)
+
+        # Seek audio to new position
+        if self.audio_synchronizer:
+            self.audio_synchronizer.on_seek_requested(self.current_position)
 
     def update_playback(self):
         """Update playback position with dynamic BPM"""
@@ -112,7 +135,7 @@ class PlaybackEngine(QObject):
 
     def process_audio_lane(self, lane: AudioLane):
         """Process audio playback for a lane at current position"""
-        if lane.muted or not lane.audio_file_path:
-            return
-        # TODO: Handle audio playback
+        # Audio playback is handled continuously by the audio_synchronizer
+        # in a separate thread. This method is called each frame for consistency
+        # but doesn't need to do anything - the audio engine handles it all.
         pass

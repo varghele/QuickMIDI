@@ -6,6 +6,8 @@ from PyQt6.QtCore import Qt, pyqtSignal, QMimeData, QTimer
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QPalette, QPainter, QPen, QColor, QWheelEvent
 from core.lane import Lane, AudioLane, MidiLane
 from .midi_block_widget import MidiBlockWidget
+from .audio_waveform_widget import AudioWaveformWidget
+from audio.audio_file import AudioFile
 from styles import theme_manager
 
 
@@ -380,6 +382,7 @@ class LaneWidget(QFrame):
         self.lane = lane
         self.midi_block_widgets = []
         self.main_window = parent
+        self.waveform_widget = None  # For audio lanes
 
         # Apply widget style
         self.setStyleSheet(theme_manager.get_lane_widget_style())
@@ -580,9 +583,17 @@ class LaneWidget(QFrame):
             if hasattr(block_widget, 'update_position'):
                 block_widget.update_position()
 
+        # Update waveform widget zoom
+        if self.waveform_widget:
+            self.waveform_widget.set_zoom_factor(zoom_factor)
+
     def sync_scroll_position(self, position: int):
         """Sync scroll position with master timeline"""
         self.timeline_scroll.horizontalScrollBar().setValue(position)
+
+        # Update waveform widget scroll offset
+        if self.waveform_widget:
+            self.waveform_widget.set_scroll_offset(position)
 
     def setup_midi_timeline(self):
         # Create MIDI block widgets for existing blocks
@@ -590,16 +601,35 @@ class LaneWidget(QFrame):
             self.create_midi_block_widget(block)
 
     def setup_audio_timeline(self):
-        # Show audio file info if loaded
+        # Create waveform widget for audio visualization
+        self.waveform_widget = AudioWaveformWidget(self.timeline_widget)
+        self.waveform_widget.setGeometry(0, 0, self.timeline_widget.width(), self.timeline_widget.height())
+        self.waveform_widget.pixels_per_second = self.timeline_widget.pixels_per_second
+        self.waveform_widget.zoom_factor = self.timeline_widget.zoom_factor
+        self.waveform_widget.show()
+
+        # Load audio file if available
         if self.lane.audio_file_path:
-            audio_label = QLabel(f"Audio: {self.lane.audio_file_path.split('/')[-1]}")
-            audio_label.setParent(self.timeline_widget)
-            audio_label.move(10, 20)
+            self.load_audio_into_waveform(self.lane.audio_file_path)
         else:
-            placeholder_label = QLabel("Drag audio file here or use Load Audio button")
-            placeholder_label.setStyleSheet("color: #888; font-style: italic;")
-            placeholder_label.setParent(self.timeline_widget)
-            placeholder_label.move(10, 20)
+            # Show placeholder text on waveform widget
+            placeholder_label = QLabel("Drag audio file here", self.waveform_widget)
+            placeholder_label.setStyleSheet("color: #888; font-style: italic; font-size: 14px;")
+            placeholder_label.setGeometry(10, 10, 300, 30)
+
+    def load_audio_into_waveform(self, file_path: str):
+        """Load audio file into waveform widget"""
+        try:
+            # Create AudioFile and load
+            audio_file = AudioFile(target_sample_rate=44100)
+            if audio_file.load(file_path):
+                # Pass to waveform widget
+                if self.waveform_widget:
+                    self.waveform_widget.load_audio_file(audio_file)
+            else:
+                QMessageBox.warning(self, "Error", f"Failed to load audio file: {file_path}")
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Error loading audio file: {str(e)}")
 
     def setup_drag_drop(self):
         if isinstance(self.lane, AudioLane):
@@ -625,6 +655,11 @@ class LaneWidget(QFrame):
             file_path = event.mimeData().urls()[0].toLocalFile()
             self.lane.set_audio_file(file_path)
             self.refresh_audio_timeline()
+
+            # Update audio synchronizer with new audio file
+            if self.main_window:
+                self.main_window.playback_engine.set_lanes(self.main_window.project.lanes)
+
             event.acceptProposedAction()
 
     def create_midi_block_widget(self, block):
@@ -681,8 +716,18 @@ class LaneWidget(QFrame):
             self.lane.set_audio_file(file_path)
             self.refresh_audio_timeline()
 
+            # Update audio synchronizer with new audio file
+            if self.main_window:
+                self.main_window.playback_engine.set_lanes(self.main_window.project.lanes)
+
     def refresh_audio_timeline(self):
-        # Clear existing widgets
+        # Clear existing waveform widget
+        if self.waveform_widget:
+            self.waveform_widget.cleanup()
+            self.waveform_widget.deleteLater()
+            self.waveform_widget = None
+
+        # Clear any remaining labels
         for child in self.timeline_widget.findChildren(QLabel):
             child.deleteLater()
 

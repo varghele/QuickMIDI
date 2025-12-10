@@ -11,6 +11,12 @@ from .master_timeline_widget import MasterTimelineContainer
 from utils.file_manager import FileManager
 from styles import theme_manager
 
+# Audio subsystem imports
+from audio.device_manager import DeviceManager
+from audio.audio_engine import AudioEngine
+from audio.audio_mixer import AudioMixer
+from audio.playback_synchronizer import PlaybackSynchronizer
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -25,6 +31,23 @@ class MainWindow(QMainWindow):
         self.playback_engine.playback_started.connect(self.on_playback_started)
         self.playback_engine.playback_halted.connect(self.on_playback_halted)
         self.playback_engine.playback_stopped.connect(self.on_playback_stopped)
+
+        # Initialize audio subsystem
+        self.device_manager = DeviceManager()
+        self.audio_mixer = AudioMixer()
+        self.audio_engine = AudioEngine()
+
+        # Initialize audio engine with default device
+        if self.audio_engine.initialize():
+            print("Audio engine initialized successfully")
+        else:
+            print("Warning: Audio engine initialization failed")
+
+        # Create synchronizer to bridge Qt and PyAudio
+        self.audio_synchronizer = PlaybackSynchronizer(self.audio_engine, self.audio_mixer)
+
+        # Connect audio synchronizer to playback engine
+        self.playback_engine.audio_synchronizer = self.audio_synchronizer
 
         self.setWindowTitle("MIDI Track Creator")
         self.setGeometry(100, 100, 1200, 800)
@@ -160,6 +183,13 @@ class MainWindow(QMainWindow):
         file_menu.addSeparator()
         file_menu.addAction(load_action)
         file_menu.addAction(load_structure_action)
+
+        # Audio menu
+        audio_menu = menubar.addMenu("Audio")
+
+        audio_settings_action = QAction("Audio Settings...", self)
+        audio_settings_action.triggered.connect(self.show_audio_settings)
+        audio_menu.addAction(audio_settings_action)
 
     def load_song_structure(self):
         """Load song structure from CSV file"""
@@ -381,3 +411,18 @@ class MainWindow(QMainWindow):
         for lane_widget in self.lane_widgets:
             if hasattr(lane_widget, 'snap_checkbox'):
                 lane_widget.snap_checkbox.setChecked(checked)
+
+    def show_audio_settings(self):
+        """Show audio settings dialog"""
+        from .audio_settings_dialog import AudioSettingsDialog
+        dialog = AudioSettingsDialog(self.device_manager, self.audio_engine, self)
+        if dialog.exec():
+            print("Audio settings applied")
+
+    def closeEvent(self, event):
+        """Cleanup audio resources on window close"""
+        try:
+            self.audio_engine.cleanup()
+        except Exception as e:
+            print(f"Error cleaning up audio engine: {e}")
+        event.accept()
