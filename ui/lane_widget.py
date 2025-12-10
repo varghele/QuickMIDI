@@ -624,8 +624,9 @@ class LaneWidget(QFrame):
 
     def add_midi_block(self):
         if isinstance(self.lane, MidiLane):
-            # Add block at timeline start
-            block = self.lane.add_midi_block(0.0, 1.0)
+            # Add block at current playhead position
+            start_time = self.timeline_widget.playhead_position
+            block = self.lane.add_midi_block(start_time, 1.0)
             self.create_midi_block_widget(block)
 
     def remove_midi_block_widget(self, block_widget):
