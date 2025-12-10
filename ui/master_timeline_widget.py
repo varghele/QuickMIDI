@@ -467,9 +467,11 @@ class MasterTimelineContainer(QWidget):
 
         # Timeline label (matches lane control width)
         timeline_label = QWidget()
-        timeline_label.setFixedWidth(250)
+        timeline_label.setFixedWidth(320)  # Match lane controls width
         label_layout = QHBoxLayout(timeline_label)
-        label_layout.addWidget(QLabel("Master Timeline"))
+        master_label = QLabel("Master Timeline")
+        master_label.setStyleSheet("font-weight: bold; font-size: 13px;")
+        label_layout.addWidget(master_label)
         label_layout.addStretch()
 
         # Info display widget
@@ -485,7 +487,7 @@ class MasterTimelineContainer(QWidget):
 
         # Empty space to align with timeline label
         spacer_widget = QWidget()
-        spacer_widget.setFixedWidth(250)
+        spacer_widget.setFixedWidth(320)  # Match lane controls width
 
         # Scrollable timeline area
         self.timeline_scroll = QScrollArea()

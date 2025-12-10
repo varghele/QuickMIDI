@@ -397,8 +397,9 @@ class LaneWidget(QFrame):
 
         # Lane controls section (left side)
         controls_widget = QWidget()
-        controls_widget.setFixedWidth(250)
+        controls_widget.setFixedWidth(320)  # Increased width for better spacing
         controls_layout = QVBoxLayout(controls_widget)
+        controls_layout.setSpacing(4)  # Add spacing between rows
 
         # Lane name and type (first row)
         name_layout = QHBoxLayout()
@@ -409,7 +410,9 @@ class LaneWidget(QFrame):
         self.remove_button.setFixedSize(25, 25)
         self.remove_button.clicked.connect(lambda: self.remove_requested.emit(self))
 
-        name_layout.addWidget(QLabel("Name:"))
+        name_label = QLabel("Name:")
+        name_label.setStyleSheet("color: white; font-weight: bold; font-size: 12px;")
+        name_layout.addWidget(name_label)
         name_layout.addWidget(self.name_edit)
         name_layout.addWidget(self.remove_button)
 
@@ -465,6 +468,7 @@ class LaneWidget(QFrame):
 
             self.snap_checkbox = QCheckBox("Snap")
             self.snap_checkbox.setChecked(True)
+            self.snap_checkbox.setStyleSheet("color: white; font-size: 12px;")
             self.snap_checkbox.toggled.connect(self.on_snap_toggled)
             control_buttons_layout.addWidget(self.snap_checkbox)
 
@@ -503,49 +507,63 @@ class LaneWidget(QFrame):
         self.timeline_widget.set_song_structure(song_structure)
 
     def setup_midi_controls(self, layout):
-        # MIDI Channel selection
-        layout.addWidget(QLabel("Ch:"))
+        # First row: Channel selection and name
+        channel_row = QHBoxLayout()
+
+        # MIDI Channel selection with label
+        ch_label = QLabel("Ch:")
+        ch_label.setStyleSheet("color: white; font-weight: bold; font-size: 12px; min-width: 25px;")
+        channel_row.addWidget(ch_label)
+
         self.channel_spinbox = QSpinBox()
         self.channel_spinbox.setRange(1, 16)
         self.channel_spinbox.setValue(self.lane.midi_channel)
+        self.channel_spinbox.setFixedWidth(50)
         self.channel_spinbox.valueChanged.connect(self.on_channel_changed)
-        layout.addWidget(self.channel_spinbox)
+        self.channel_spinbox.setStyleSheet(theme_manager.get_spinbox_style())
+        channel_row.addWidget(self.channel_spinbox)
 
-        # Channel name
+        # Channel name with more space
         self.channel_name_edit = QLineEdit(self.lane.channel_name)
         self.channel_name_edit.setPlaceholderText("Channel Name")
         self.channel_name_edit.textChanged.connect(self.on_channel_name_changed)
-        layout.addWidget(self.channel_name_edit)
+        self.channel_name_edit.setStyleSheet(theme_manager.get_line_edit_style())
+        channel_row.addWidget(self.channel_name_edit, 1)  # Give it stretch factor
 
-        # Add MIDI block button
+        layout.addLayout(channel_row)
+
+        # Second row: Add Block button (full width)
+        button_row = QHBoxLayout()
         self.add_block_button = QPushButton("Add Block")
         self.add_block_button.clicked.connect(self.add_midi_block)
-        layout.addWidget(self.add_block_button)
-
-        # Apply styles
-        self.channel_spinbox.setStyleSheet(theme_manager.get_spinbox_style())
-        self.channel_name_edit.setStyleSheet(theme_manager.get_line_edit_style())
         self.add_block_button.setStyleSheet(theme_manager.get_action_button_style())
+        button_row.addWidget(self.add_block_button)
+        button_row.addStretch()  # Push button to the left
+
+        layout.addLayout(button_row)
 
 
     def setup_audio_controls(self, layout):
         # Load audio file button
         self.load_audio_button = QPushButton("Load Audio")
         self.load_audio_button.clicked.connect(self.load_audio_file)
+        self.load_audio_button.setStyleSheet(theme_manager.get_action_button_style())
         layout.addWidget(self.load_audio_button)
 
-        # Volume control
-        layout.addWidget(QLabel("Vol:"))
+        # Volume control with readable label
+        vol_label = QLabel("Vol:")
+        vol_label.setStyleSheet("color: white; font-weight: bold; font-size: 12px; margin-left: 10px;")
+        layout.addWidget(vol_label)
+
         self.volume_spinbox = QSpinBox()
         self.volume_spinbox.setRange(0, 100)
         self.volume_spinbox.setValue(int(self.lane.volume * 100))
+        self.volume_spinbox.setFixedWidth(60)
         self.volume_spinbox.valueChanged.connect(self.on_volume_changed)
-        layout.addWidget(self.volume_spinbox)
-        layout.addStretch()  # Push controls to the left
-
-        # Apply styles
-        self.load_audio_button.setStyleSheet(theme_manager.get_action_button_style())
         self.volume_spinbox.setStyleSheet(theme_manager.get_spinbox_style())
+        layout.addWidget(self.volume_spinbox)
+
+        layout.addStretch()  # Push controls to the left
 
     def set_playhead_position(self, position: float):
         """Set playhead position for this lane's timeline"""
