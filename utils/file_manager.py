@@ -32,108 +32,98 @@ class FileManager:
         pass
 
     def export_midi_tracks(self, project: Project, base_file_path: str):
-        """Export all MIDI lanes to MIDI files"""
+        """Export all MIDI lanes to a single MIDI file with multiple tracks"""
         midi_lanes = project.get_midi_lanes()
 
         if not midi_lanes:
             raise Exception("No MIDI lanes to export")
 
-        exported_files = []
-
-        for i, lane in enumerate(midi_lanes):
-            # Create filename for this lane
-            if len(midi_lanes) == 1:
-                file_path = base_file_path
-            else:
-                # Split the file path and add lane index
-                base_name = base_file_path.rsplit('.', 1)[0]
-                extension = base_file_path.rsplit('.', 1)[1] if '.' in base_file_path else 'mid'
-                file_path = f"{base_name}_{lane.name.replace(' ', '_')}.{extension}"
-
-            self._export_single_midi_lane(lane, file_path, project.bpm)
-            exported_files.append(file_path)
-
-        return exported_files
-
-    def _export_single_midi_lane(self, lane: MidiLane, file_path: str, bpm: float):
-        """Export a single MIDI lane to a MIDI file"""
         # Create a new MIDI file
-        mid = mido.MidiFile(ticks_per_beat=480)
-        track = mido.MidiTrack()
-        mid.tracks.append(track)
+        mid = mido.MidiFile(ticks_per_beat=480, type=1)
 
-        # Add track name
-        track.append(mido.MetaMessage('track_name', name=lane.name, time=0))
+        # Add tempo track
+        tempo_track = mido.MidiTrack()
+        mid.tracks.append(tempo_track)
+        tempo_track.append(mido.MetaMessage('track_name', name='Tempo Track', time=0))
+        tempo = mido.bpm2tempo(project.bpm)
+        tempo_track.append(mido.MetaMessage('set_tempo', tempo=tempo, time=0))
+        tempo_track.append(mido.MetaMessage('end_of_track', time=0))
 
-        # Add tempo (convert BPM to microseconds per beat)
-        tempo = mido.bpm2tempo(bpm)
-        track.append(mido.MetaMessage('set_tempo', tempo=tempo, time=0))
+        # Add each MIDI lane as a track
+        for lane in midi_lanes:
+            track = mido.MidiTrack()
+            mid.tracks.append(track)
 
-        # Convert MIDI blocks to MIDI messages
-        events = []
+            # Add track name
+            track.append(mido.MetaMessage('track_name', name=lane.name, time=0))
 
-        for block in lane.midi_blocks:
-            # Convert time in seconds to ticks
-            start_ticks = self._seconds_to_ticks(block.start_time, bpm, mid.ticks_per_beat)
-            end_ticks = self._seconds_to_ticks(block.start_time + block.duration, bpm, mid.ticks_per_beat)
+            # Convert MIDI blocks to MIDI messages
+            events = []
 
-            # Create appropriate MIDI message based on message type
-            if block.message_type == MidiMessageType.PROGRAM_CHANGE:
-                msg = mido.Message('program_change',
-                                   channel=lane.midi_channel - 1,
-                                   program=block.value1,
-                                   time=0)
-                events.append((start_ticks, msg))
+            for block in lane.midi_blocks:
+                # Convert time in seconds to ticks
+                start_ticks = self._seconds_to_ticks(block.start_time, project.bpm, mid.ticks_per_beat)
+                end_ticks = self._seconds_to_ticks(block.start_time + block.duration, project.bpm, mid.ticks_per_beat)
 
-            elif block.message_type == MidiMessageType.CONTROL_CHANGE:
-                msg = mido.Message('control_change',
-                                   channel=lane.midi_channel - 1,
-                                   control=block.value1,
-                                   value=block.value2,
-                                   time=0)
-                events.append((start_ticks, msg))
+                # Create appropriate MIDI message based on message type
+                if block.message_type == MidiMessageType.PROGRAM_CHANGE:
+                    msg = mido.Message('program_change',
+                                       channel=lane.midi_channel - 1,
+                                       program=block.value1,
+                                       time=0)
+                    events.append((start_ticks, msg))
 
-            elif block.message_type == MidiMessageType.NOTE_ON:
-                # Add note on
-                note_on = mido.Message('note_on',
+                elif block.message_type == MidiMessageType.CONTROL_CHANGE:
+                    msg = mido.Message('control_change',
+                                       channel=lane.midi_channel - 1,
+                                       control=block.value1,
+                                       value=block.value2,
+                                       time=0)
+                    events.append((start_ticks, msg))
+
+                elif block.message_type == MidiMessageType.NOTE_ON:
+                    # Add note on
+                    note_on = mido.Message('note_on',
+                                           channel=lane.midi_channel - 1,
+                                           note=block.value1,
+                                           velocity=block.value2,
+                                           time=0)
+                    events.append((start_ticks, note_on))
+
+                    # Add note off
+                    note_off = mido.Message('note_off',
+                                            channel=lane.midi_channel - 1,
+                                            note=block.value1,
+                                            velocity=0,
+                                            time=0)
+                    events.append((end_ticks, note_off))
+
+                elif block.message_type == MidiMessageType.NOTE_OFF:
+                    msg = mido.Message('note_off',
                                        channel=lane.midi_channel - 1,
                                        note=block.value1,
-                                       velocity=block.value2,
+                                       velocity=0,
                                        time=0)
-                events.append((start_ticks, note_on))
+                    events.append((start_ticks, msg))
 
-                # Add note off
-                note_off = mido.Message('note_off',
-                                        channel=lane.midi_channel - 1,
-                                        note=block.value1,
-                                        velocity=0,
-                                        time=0)
-                events.append((end_ticks, note_off))
+            # Sort events by time
+            events.sort(key=lambda x: x[0])
 
-            elif block.message_type == MidiMessageType.NOTE_OFF:
-                msg = mido.Message('note_off',
-                                   channel=lane.midi_channel - 1,
-                                   note=block.value1,
-                                   velocity=0,
-                                   time=0)
-                events.append((start_ticks, msg))
+            # Convert absolute times to delta times and add to track
+            previous_time = 0
+            for abs_time, msg in events:
+                delta_time = abs_time - previous_time
+                msg.time = delta_time
+                track.append(msg)
+                previous_time = abs_time
 
-        # Sort events by time
-        events.sort(key=lambda x: x[0])
-
-        # Convert absolute times to delta times and add to track
-        previous_time = 0
-        for abs_time, msg in events:
-            delta_time = abs_time - previous_time
-            msg.time = delta_time
-            track.append(msg)
-            previous_time = abs_time
-
-        # Add end of track
-        track.append(mido.MetaMessage('end_of_track', time=0))
+            # Add end of track
+            track.append(mido.MetaMessage('end_of_track', time=0))
 
         # Save the MIDI file
-        mid.save(file_path)
+        mid.save(base_file_path)
+
+        return [base_file_path]
 
     def import_midi_file(self, file_path: str, bpm: float) -> List[MidiLane]:
         """Import a MIDI file and create MIDI lanes"""

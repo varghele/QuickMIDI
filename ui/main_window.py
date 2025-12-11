@@ -255,6 +255,16 @@ class MainWindow(QMainWindow):
 
     def add_midi_lane(self):
         lane = self.project.add_lane("midi")
+
+        # Auto-increment MIDI channel based on existing MIDI lanes
+        midi_lanes = self.project.get_midi_lanes()
+        if len(midi_lanes) > 0:
+            # Set channel to the number of MIDI lanes (1-indexed)
+            channel_num = len(midi_lanes)
+            # MIDI supports channels 1-16
+            if channel_num <= 16:
+                lane.set_midi_channel(channel_num, f"Channel {channel_num}")
+
         lane_widget = LaneWidget(lane, self)
         lane_widget.remove_requested.connect(self.remove_lane)
         lane_widget.scroll_position_changed.connect(self.sync_master_timeline_scroll)
@@ -322,13 +332,9 @@ class MainWindow(QMainWindow):
                 exported_files = self.file_manager.export_midi_tracks(self.project, file_path)
 
                 # Show success message
-                if len(exported_files) == 1:
-                    QMessageBox.information(self, "Success",
-                                          f"MIDI file exported successfully:\n{exported_files[0]}")
-                else:
-                    files_list = "\n".join(exported_files)
-                    QMessageBox.information(self, "Success",
-                                          f"Exported {len(exported_files)} MIDI files:\n{files_list}")
+                midi_lanes = self.project.get_midi_lanes()
+                QMessageBox.information(self, "Success",
+                                      f"Successfully exported {len(midi_lanes)} MIDI lane(s) to:\n{exported_files[0]}")
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to export MIDI: {str(e)}")
 
