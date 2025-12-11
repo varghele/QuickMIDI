@@ -178,11 +178,23 @@ class MainWindow(QMainWindow):
         load_structure_action.setShortcut("Ctrl+Shift+O")
         load_structure_action.triggered.connect(self.load_song_structure)
 
+        # Add MIDI export and import
+        export_midi_action = QAction("Export MIDI...", self)
+        export_midi_action.setShortcut("Ctrl+E")
+        export_midi_action.triggered.connect(self.export_midi)
+
+        import_midi_action = QAction("Import MIDI...", self)
+        import_midi_action.setShortcut("Ctrl+I")
+        import_midi_action.triggered.connect(self.import_midi)
+
         file_menu.addAction(save_action)
         file_menu.addAction(save_as_action)
         file_menu.addSeparator()
         file_menu.addAction(load_action)
         file_menu.addAction(load_structure_action)
+        file_menu.addSeparator()
+        file_menu.addAction(export_midi_action)
+        file_menu.addAction(import_midi_action)
 
         # Audio menu
         audio_menu = menubar.addMenu("Audio")
@@ -292,6 +304,75 @@ class MainWindow(QMainWindow):
                 self.refresh_ui()
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to load project: {str(e)}")
+
+    def export_midi(self):
+        """Export MIDI lanes to MIDI files"""
+        # Check if there are any MIDI lanes
+        midi_lanes = self.project.get_midi_lanes()
+        if not midi_lanes:
+            QMessageBox.warning(self, "No MIDI Lanes", "There are no MIDI lanes to export.")
+            return
+
+        # Get file path for export
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Export MIDI", "", "MIDI Files (*.mid)")
+
+        if file_path:
+            try:
+                exported_files = self.file_manager.export_midi_tracks(self.project, file_path)
+
+                # Show success message
+                if len(exported_files) == 1:
+                    QMessageBox.information(self, "Success",
+                                          f"MIDI file exported successfully:\n{exported_files[0]}")
+                else:
+                    files_list = "\n".join(exported_files)
+                    QMessageBox.information(self, "Success",
+                                          f"Exported {len(exported_files)} MIDI files:\n{files_list}")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to export MIDI: {str(e)}")
+
+    def import_midi(self):
+        """Import MIDI file and create lanes"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Import MIDI", "", "MIDI Files (*.mid)")
+
+        if file_path:
+            try:
+                # Import the MIDI file and get lanes
+                imported_lanes = self.file_manager.import_midi_file(file_path, self.project.bpm)
+
+                if not imported_lanes:
+                    QMessageBox.warning(self, "No Data", "No MIDI data found in the file.")
+                    return
+
+                # Add the imported lanes to the project
+                for lane in imported_lanes:
+                    self.project.lanes.append(lane)
+
+                    # Create lane widget
+                    lane_widget = LaneWidget(lane, self)
+                    lane_widget.remove_requested.connect(self.remove_lane)
+                    lane_widget.scroll_position_changed.connect(self.sync_master_timeline_scroll)
+                    lane_widget.zoom_changed.connect(self.sync_master_timeline_zoom)
+                    lane_widget.playhead_moved.connect(self.on_playhead_moved_by_user)
+
+                    # Pass song structure if it exists
+                    if hasattr(self.project, 'song_structure') and self.project.song_structure:
+                        lane_widget.set_song_structure(self.project.song_structure)
+
+                    self.lane_widgets.append(lane_widget)
+                    insert_index = self.lanes_layout.count() - 1
+                    self.lanes_layout.insertWidget(insert_index, lane_widget)
+
+                # Update playback engine with new lanes
+                self.playback_engine.set_lanes(self.project.lanes)
+
+                # Show success message
+                QMessageBox.information(self, "Success",
+                                      f"Imported {len(imported_lanes)} MIDI lane(s) from {file_path}")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to import MIDI: {str(e)}")
 
     def refresh_ui(self):
         # Clear existing lane widgets
