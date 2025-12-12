@@ -742,9 +742,17 @@ class LaneWidget(QFrame):
         self.lane.muted = checked
         self.update_mute_button_style()
 
+        # Update audio mixer mute state if this is an audio lane
+        if isinstance(self.lane, AudioLane) and hasattr(self.main_window, 'audio_synchronizer'):
+            self.main_window.audio_synchronizer.update_lane_mute(id(self.lane), checked)
+
     def on_solo_toggled(self, checked):
         self.lane.solo = checked
         self.update_solo_button_style()
+
+        # Update audio mixer solo state if this is an audio lane
+        if isinstance(self.lane, AudioLane) and hasattr(self.main_window, 'audio_synchronizer'):
+            self.main_window.audio_synchronizer.update_lane_solo(id(self.lane), checked)
 
     def on_channel_changed(self, value):
         if isinstance(self.lane, MidiLane):

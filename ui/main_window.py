@@ -17,12 +17,17 @@ from audio.audio_engine import AudioEngine
 from audio.audio_mixer import AudioMixer
 from audio.playback_synchronizer import PlaybackSynchronizer
 
+# MIDI subsystem imports
+from audio.midi_device_manager import MidiDeviceManager
+from audio.midi_output_engine import MidiOutputEngine
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.project = Project()
         self.file_manager = FileManager()
         self.lane_widgets = []
+        self.modified = False
 
         # Initialize playback engine
         self.playback_engine = PlaybackEngine()
@@ -48,6 +53,31 @@ class MainWindow(QMainWindow):
 
         # Connect audio synchronizer to playback engine
         self.playback_engine.audio_synchronizer = self.audio_synchronizer
+
+        # Initialize MIDI subsystem
+        self.midi_device_manager = MidiDeviceManager()
+        self.midi_output_engine = MidiOutputEngine()
+
+        # Initialize MIDI engine with default device
+        midi_config = self.midi_device_manager.load_preferences('midi_config.json')
+        device_index = midi_config.get('device_index')
+
+        # If no saved device, use first available
+        if device_index is None:
+            default_device = self.midi_device_manager.get_default_device()
+            if default_device:
+                device_index = default_device.index
+
+        if device_index is not None:
+            if self.midi_output_engine.initialize(device_index):
+                print(f"MIDI output initialized with device {device_index}")
+            else:
+                print("Warning: MIDI output initialization failed")
+        else:
+            print("No MIDI output devices available")
+
+        # Connect MIDI output engine to playback engine
+        self.playback_engine.midi_output_engine = self.midi_output_engine
 
         self.setWindowTitle("MIDI Track Creator")
         self.setGeometry(100, 100, 1200, 800)
@@ -161,6 +191,10 @@ class MainWindow(QMainWindow):
         # File menu
         file_menu = menubar.addMenu("File")
 
+        new_action = QAction("New", self)
+        new_action.setShortcut("Ctrl+N")
+        new_action.triggered.connect(self.new_project)
+
         save_action = QAction("Save", self)
         save_action.setShortcut("Ctrl+S")
         save_action.triggered.connect(self.save_project)
@@ -178,11 +212,25 @@ class MainWindow(QMainWindow):
         load_structure_action.setShortcut("Ctrl+Shift+O")
         load_structure_action.triggered.connect(self.load_song_structure)
 
+        # Add MIDI export and import
+        export_midi_action = QAction("Export MIDI...", self)
+        export_midi_action.setShortcut("Ctrl+E")
+        export_midi_action.triggered.connect(self.export_midi)
+
+        import_midi_action = QAction("Import MIDI...", self)
+        import_midi_action.setShortcut("Ctrl+I")
+        import_midi_action.triggered.connect(self.import_midi)
+
+        file_menu.addAction(new_action)
+        file_menu.addSeparator()
         file_menu.addAction(save_action)
         file_menu.addAction(save_as_action)
         file_menu.addSeparator()
         file_menu.addAction(load_action)
         file_menu.addAction(load_structure_action)
+        file_menu.addSeparator()
+        file_menu.addAction(export_midi_action)
+        file_menu.addAction(import_midi_action)
 
         # Audio menu
         audio_menu = menubar.addMenu("Audio")
@@ -190,6 +238,13 @@ class MainWindow(QMainWindow):
         audio_settings_action = QAction("Audio Settings...", self)
         audio_settings_action.triggered.connect(self.show_audio_settings)
         audio_menu.addAction(audio_settings_action)
+
+        # MIDI menu
+        midi_menu = menubar.addMenu("MIDI")
+
+        midi_settings_action = QAction("MIDI Settings...", self)
+        midi_settings_action.triggered.connect(self.show_midi_settings)
+        midi_menu.addAction(midi_settings_action)
 
     def load_song_structure(self):
         """Load song structure from CSV file"""
@@ -213,6 +268,9 @@ class MainWindow(QMainWindow):
 
                     # Update playback engine
                     self.playback_engine.set_song_structure(song_structure)
+
+                    # Mark as modified
+                    self.modified = True
 
                     QMessageBox.information(self, "Success",
                                             f"Loaded song structure with {len(song_structure.parts)} parts")
@@ -241,8 +299,21 @@ class MainWindow(QMainWindow):
         # Update playback engine with new lanes
         self.playback_engine.set_lanes(self.project.lanes)
 
+        # Mark as modified
+        self.modified = True
+
     def add_midi_lane(self):
         lane = self.project.add_lane("midi")
+
+        # Auto-increment MIDI channel based on existing MIDI lanes
+        midi_lanes = self.project.get_midi_lanes()
+        if len(midi_lanes) > 0:
+            # Set channel to the number of MIDI lanes (1-indexed)
+            channel_num = len(midi_lanes)
+            # MIDI supports channels 1-16
+            if channel_num <= 16:
+                lane.set_midi_channel(channel_num, f"Channel {channel_num}")
+
         lane_widget = LaneWidget(lane, self)
         lane_widget.remove_requested.connect(self.remove_lane)
         lane_widget.scroll_position_changed.connect(self.sync_master_timeline_scroll)
@@ -261,15 +332,22 @@ class MainWindow(QMainWindow):
         # Update playback engine with new lanes
         self.playback_engine.set_lanes(self.project.lanes)
 
+        # Mark as modified
+        self.modified = True
+
     def remove_lane(self, lane_widget):
         self.project.remove_lane(lane_widget.lane)
         self.lane_widgets.remove(lane_widget)
         self.lanes_layout.removeWidget(lane_widget)
         lane_widget.deleteLater()
 
+        # Mark as modified
+        self.modified = True
+
     def save_project(self):
         if hasattr(self, 'current_file_path'):
             self.file_manager.save_project(self.project, self.current_file_path)
+            self.modified = False
         else:
             self.save_project_as()
 
@@ -280,8 +358,12 @@ class MainWindow(QMainWindow):
         if file_path:
             self.file_manager.save_project(self.project, file_path)
             self.current_file_path = file_path
+            self.modified = False
 
     def load_project(self):
+        if not self.check_unsaved_changes():
+            return
+
         file_path, _ = QFileDialog.getOpenFileName(
             self, "Load Project", "", "JSON Files (*.json)")
 
@@ -289,9 +371,115 @@ class MainWindow(QMainWindow):
             try:
                 self.project = self.file_manager.load_project(file_path)
                 self.current_file_path = file_path
+                self.modified = False
                 self.refresh_ui()
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to load project: {str(e)}")
+
+    def new_project(self):
+        """Create a new project with unsaved changes check"""
+        if not self.check_unsaved_changes():
+            return
+
+        # Create new project
+        self.project = Project()
+        self.modified = False
+        if hasattr(self, 'current_file_path'):
+            delattr(self, 'current_file_path')
+
+        # Reset BPM to default
+        self.bpm_spinbox.setValue(120)
+
+        # Clear song structure if any
+        if hasattr(self.project, 'song_structure'):
+            self.project.song_structure = None
+
+        # Refresh UI to clear all lanes
+        self.refresh_ui()
+
+        # Reset playhead
+        self.playback_engine.stop()
+
+    def check_unsaved_changes(self):
+        """Check for unsaved changes and prompt user. Returns True if it's safe to proceed."""
+        if self.modified:
+            reply = QMessageBox.question(
+                self,
+                "Unsaved Changes",
+                "You have unsaved changes. Do you want to continue?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+            return reply == QMessageBox.StandardButton.Yes
+        return True
+
+    def export_midi(self):
+        """Export MIDI lanes to MIDI files"""
+        # Check if there are any MIDI lanes
+        midi_lanes = self.project.get_midi_lanes()
+        if not midi_lanes:
+            QMessageBox.warning(self, "No MIDI Lanes", "There are no MIDI lanes to export.")
+            return
+
+        # Get file path for export
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Export MIDI", "", "MIDI Files (*.mid)")
+
+        if file_path:
+            try:
+                exported_files = self.file_manager.export_midi_tracks(self.project, file_path)
+
+                # Show success message
+                midi_lanes = self.project.get_midi_lanes()
+                QMessageBox.information(self, "Success",
+                                      f"Successfully exported {len(midi_lanes)} MIDI lane(s) to:\n{exported_files[0]}")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to export MIDI: {str(e)}")
+
+    def import_midi(self):
+        """Import MIDI file and create lanes"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Import MIDI", "", "MIDI Files (*.mid)")
+
+        if file_path:
+            try:
+                # Import the MIDI file and get lanes
+                imported_lanes = self.file_manager.import_midi_file(file_path, self.project.bpm)
+
+                if not imported_lanes:
+                    QMessageBox.warning(self, "No Data", "No MIDI data found in the file.")
+                    return
+
+                # Add the imported lanes to the project
+                for lane in imported_lanes:
+                    self.project.lanes.append(lane)
+
+                    # Create lane widget
+                    lane_widget = LaneWidget(lane, self)
+                    lane_widget.remove_requested.connect(self.remove_lane)
+                    lane_widget.scroll_position_changed.connect(self.sync_master_timeline_scroll)
+                    lane_widget.zoom_changed.connect(self.sync_master_timeline_zoom)
+                    lane_widget.playhead_moved.connect(self.on_playhead_moved_by_user)
+
+                    # Pass song structure if it exists
+                    if hasattr(self.project, 'song_structure') and self.project.song_structure:
+                        lane_widget.set_song_structure(self.project.song_structure)
+
+                    self.lane_widgets.append(lane_widget)
+                    insert_index = self.lanes_layout.count() - 1
+                    self.lanes_layout.insertWidget(insert_index, lane_widget)
+
+                # Update playback engine with new lanes
+                self.playback_engine.set_lanes(self.project.lanes)
+
+                # Mark as modified
+                self.modified = True
+
+                # Show success message
+                QMessageBox.information(self, "Success",
+                                      f"Imported {len(imported_lanes)} MIDI lane(s) from {file_path}")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to import MIDI: {str(e)}")
 
     def refresh_ui(self):
         # Clear existing lane widgets
@@ -404,6 +592,9 @@ class MainWindow(QMainWindow):
         for lane_widget in self.lane_widgets:
             lane_widget.update_bpm(bpm)
 
+        # Mark as modified
+        self.modified = True
+
     def on_global_snap_toggled(self, checked):
         """Toggle snap to grid globally"""
         self.playback_engine.set_snap_to_grid(checked)
@@ -419,10 +610,28 @@ class MainWindow(QMainWindow):
         if dialog.exec():
             print("Audio settings applied")
 
+    def show_midi_settings(self):
+        """Show MIDI settings dialog"""
+        from .midi_settings_dialog import MidiSettingsDialog
+        dialog = MidiSettingsDialog(self.midi_device_manager, self.midi_output_engine, self)
+        if dialog.exec():
+            print("MIDI settings applied")
+
     def closeEvent(self, event):
-        """Cleanup audio resources on window close"""
+        """Cleanup audio and MIDI resources on window close"""
+        # Check for unsaved changes
+        if not self.check_unsaved_changes():
+            event.ignore()
+            return
+
         try:
             self.audio_engine.cleanup()
         except Exception as e:
             print(f"Error cleaning up audio engine: {e}")
+
+        try:
+            self.midi_output_engine.cleanup()
+        except Exception as e:
+            print(f"Error cleaning up MIDI engine: {e}")
+
         event.accept()
