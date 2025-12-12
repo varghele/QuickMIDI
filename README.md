@@ -1,6 +1,6 @@
 # QuickMIDI
-Quick MIDI analyzer and fixer, I don't want to open the DAW everytime
-
+Quick MIDI analyzer and fixer, I don't want to open the DAW everytime.\
+If you wanto build it yourself, you will need the following:
 ``````bash
 conda create --name quickmidi python=3.12
 conda activate quickmidi
@@ -16,4 +16,8 @@ pip install cffi pycparser
 pip install PyQt6_sip sip
 pip install decorator typing_extensions
 pip install soxr
+``````
+You can also run:
+``````bash
+pip install -r requirements.txt
 ``````
