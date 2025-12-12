@@ -17,6 +17,10 @@ from audio.audio_engine import AudioEngine
 from audio.audio_mixer import AudioMixer
 from audio.playback_synchronizer import PlaybackSynchronizer
 
+# MIDI subsystem imports
+from audio.midi_device_manager import MidiDeviceManager
+from audio.midi_output_engine import MidiOutputEngine
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -49,6 +53,31 @@ class MainWindow(QMainWindow):
 
         # Connect audio synchronizer to playback engine
         self.playback_engine.audio_synchronizer = self.audio_synchronizer
+
+        # Initialize MIDI subsystem
+        self.midi_device_manager = MidiDeviceManager()
+        self.midi_output_engine = MidiOutputEngine()
+
+        # Initialize MIDI engine with default device
+        midi_config = self.midi_device_manager.load_preferences('midi_config.json')
+        device_index = midi_config.get('device_index')
+
+        # If no saved device, use first available
+        if device_index is None:
+            default_device = self.midi_device_manager.get_default_device()
+            if default_device:
+                device_index = default_device.index
+
+        if device_index is not None:
+            if self.midi_output_engine.initialize(device_index):
+                print(f"MIDI output initialized with device {device_index}")
+            else:
+                print("Warning: MIDI output initialization failed")
+        else:
+            print("No MIDI output devices available")
+
+        # Connect MIDI output engine to playback engine
+        self.playback_engine.midi_output_engine = self.midi_output_engine
 
         self.setWindowTitle("MIDI Track Creator")
         self.setGeometry(100, 100, 1200, 800)
@@ -209,6 +238,13 @@ class MainWindow(QMainWindow):
         audio_settings_action = QAction("Audio Settings...", self)
         audio_settings_action.triggered.connect(self.show_audio_settings)
         audio_menu.addAction(audio_settings_action)
+
+        # MIDI menu
+        midi_menu = menubar.addMenu("MIDI")
+
+        midi_settings_action = QAction("MIDI Settings...", self)
+        midi_settings_action.triggered.connect(self.show_midi_settings)
+        midi_menu.addAction(midi_settings_action)
 
     def load_song_structure(self):
         """Load song structure from CSV file"""
@@ -574,8 +610,15 @@ class MainWindow(QMainWindow):
         if dialog.exec():
             print("Audio settings applied")
 
+    def show_midi_settings(self):
+        """Show MIDI settings dialog"""
+        from .midi_settings_dialog import MidiSettingsDialog
+        dialog = MidiSettingsDialog(self.midi_device_manager, self.midi_output_engine, self)
+        if dialog.exec():
+            print("MIDI settings applied")
+
     def closeEvent(self, event):
-        """Cleanup audio resources on window close"""
+        """Cleanup audio and MIDI resources on window close"""
         # Check for unsaved changes
         if not self.check_unsaved_changes():
             event.ignore()
@@ -585,4 +628,10 @@ class MainWindow(QMainWindow):
             self.audio_engine.cleanup()
         except Exception as e:
             print(f"Error cleaning up audio engine: {e}")
+
+        try:
+            self.midi_output_engine.cleanup()
+        except Exception as e:
+            print(f"Error cleaning up MIDI engine: {e}")
+
         event.accept()

@@ -26,6 +26,11 @@ class PlaybackEngine(QObject):
 
         self.lanes: List[Lane] = []
         self.audio_synchronizer = None  # Set externally from main_window
+        self.midi_output_engine = None  # Set externally from main_window
+
+        # Track MIDI blocks that have been triggered
+        self._triggered_midi_blocks = set()  # Blocks that have started
+        self._ended_midi_blocks = set()  # Blocks that have ended
 
     def set_song_structure(self, song_structure):
         """Set song structure for BPM-aware playback"""
@@ -79,6 +84,14 @@ class PlaybackEngine(QObject):
         if self.audio_synchronizer:
             self.audio_synchronizer.on_stop_requested()
 
+        # Reset MIDI state
+        if self.midi_output_engine:
+            self.midi_output_engine.reset_playback()
+
+        # Clear MIDI tracking
+        self._triggered_midi_blocks.clear()
+        self._ended_midi_blocks.clear()
+
         self.set_position(0.0)
         self.playback_stopped.emit()
 
@@ -95,6 +108,14 @@ class PlaybackEngine(QObject):
         # Seek audio to new position
         if self.audio_synchronizer:
             self.audio_synchronizer.on_seek_requested(self.current_position)
+
+        # Reset MIDI state when seeking
+        if self.midi_output_engine:
+            self.midi_output_engine.reset_playback()
+
+        # Clear MIDI tracking when seeking
+        self._triggered_midi_blocks.clear()
+        self._ended_midi_blocks.clear()
 
     def update_playback(self):
         """Update playback position with dynamic BPM"""
@@ -115,7 +136,14 @@ class PlaybackEngine(QObject):
 
     def process_lane_events(self):
         """Process events for all lanes at current position"""
+        # Check if any lanes are soloed
+        any_solo = any(lane.solo for lane in self.lanes)
+
         for lane in self.lanes:
+            # Skip lane if solo mode is active and this lane is not soloed
+            if any_solo and not lane.solo:
+                continue
+
             if isinstance(lane, MidiLane):
                 self.process_midi_lane(lane)
             elif isinstance(lane, AudioLane):
@@ -126,12 +154,26 @@ class PlaybackEngine(QObject):
         if lane.muted:
             return
 
+        if not self.midi_output_engine or not self.midi_output_engine.is_initialized():
+            return
+
         for block in lane.midi_blocks:
-            # Check if we should trigger this block
-            if (block.start_time <= self.current_position <
-                    block.start_time + block.duration):
-                # TODO: Send MIDI message
-                pass
+            block_id = id(block)
+            block_end_time = block.start_time + block.duration
+
+            # Check if block should start
+            if block.start_time <= self.current_position < block_end_time:
+                # Trigger block start if not already triggered
+                if block_id not in self._triggered_midi_blocks:
+                    self.midi_output_engine.process_block_start(block, lane.midi_channel)
+                    self._triggered_midi_blocks.add(block_id)
+
+            # Check if block should end (for NOTE_ON blocks)
+            if self.current_position >= block_end_time:
+                # Trigger block end if not already ended
+                if block_id not in self._ended_midi_blocks:
+                    self.midi_output_engine.process_block_end(block, lane.midi_channel)
+                    self._ended_midi_blocks.add(block_id)
 
     def process_audio_lane(self, lane: AudioLane):
         """Process audio playback for a lane at current position"""
