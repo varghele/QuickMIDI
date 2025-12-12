@@ -23,6 +23,7 @@ class MainWindow(QMainWindow):
         self.project = Project()
         self.file_manager = FileManager()
         self.lane_widgets = []
+        self.modified = False
 
         # Initialize playback engine
         self.playback_engine = PlaybackEngine()
@@ -161,6 +162,10 @@ class MainWindow(QMainWindow):
         # File menu
         file_menu = menubar.addMenu("File")
 
+        new_action = QAction("New", self)
+        new_action.setShortcut("Ctrl+N")
+        new_action.triggered.connect(self.new_project)
+
         save_action = QAction("Save", self)
         save_action.setShortcut("Ctrl+S")
         save_action.triggered.connect(self.save_project)
@@ -187,6 +192,8 @@ class MainWindow(QMainWindow):
         import_midi_action.setShortcut("Ctrl+I")
         import_midi_action.triggered.connect(self.import_midi)
 
+        file_menu.addAction(new_action)
+        file_menu.addSeparator()
         file_menu.addAction(save_action)
         file_menu.addAction(save_as_action)
         file_menu.addSeparator()
@@ -226,6 +233,9 @@ class MainWindow(QMainWindow):
                     # Update playback engine
                     self.playback_engine.set_song_structure(song_structure)
 
+                    # Mark as modified
+                    self.modified = True
+
                     QMessageBox.information(self, "Success",
                                             f"Loaded song structure with {len(song_structure.parts)} parts")
                 else:
@@ -252,6 +262,9 @@ class MainWindow(QMainWindow):
 
         # Update playback engine with new lanes
         self.playback_engine.set_lanes(self.project.lanes)
+
+        # Mark as modified
+        self.modified = True
 
     def add_midi_lane(self):
         lane = self.project.add_lane("midi")
@@ -283,15 +296,22 @@ class MainWindow(QMainWindow):
         # Update playback engine with new lanes
         self.playback_engine.set_lanes(self.project.lanes)
 
+        # Mark as modified
+        self.modified = True
+
     def remove_lane(self, lane_widget):
         self.project.remove_lane(lane_widget.lane)
         self.lane_widgets.remove(lane_widget)
         self.lanes_layout.removeWidget(lane_widget)
         lane_widget.deleteLater()
 
+        # Mark as modified
+        self.modified = True
+
     def save_project(self):
         if hasattr(self, 'current_file_path'):
             self.file_manager.save_project(self.project, self.current_file_path)
+            self.modified = False
         else:
             self.save_project_as()
 
@@ -302,8 +322,12 @@ class MainWindow(QMainWindow):
         if file_path:
             self.file_manager.save_project(self.project, file_path)
             self.current_file_path = file_path
+            self.modified = False
 
     def load_project(self):
+        if not self.check_unsaved_changes():
+            return
+
         file_path, _ = QFileDialog.getOpenFileName(
             self, "Load Project", "", "JSON Files (*.json)")
 
@@ -311,9 +335,47 @@ class MainWindow(QMainWindow):
             try:
                 self.project = self.file_manager.load_project(file_path)
                 self.current_file_path = file_path
+                self.modified = False
                 self.refresh_ui()
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to load project: {str(e)}")
+
+    def new_project(self):
+        """Create a new project with unsaved changes check"""
+        if not self.check_unsaved_changes():
+            return
+
+        # Create new project
+        self.project = Project()
+        self.modified = False
+        if hasattr(self, 'current_file_path'):
+            delattr(self, 'current_file_path')
+
+        # Reset BPM to default
+        self.bpm_spinbox.setValue(120)
+
+        # Clear song structure if any
+        if hasattr(self.project, 'song_structure'):
+            self.project.song_structure = None
+
+        # Refresh UI to clear all lanes
+        self.refresh_ui()
+
+        # Reset playhead
+        self.playback_engine.stop()
+
+    def check_unsaved_changes(self):
+        """Check for unsaved changes and prompt user. Returns True if it's safe to proceed."""
+        if self.modified:
+            reply = QMessageBox.question(
+                self,
+                "Unsaved Changes",
+                "You have unsaved changes. Do you want to continue?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+            return reply == QMessageBox.StandardButton.Yes
+        return True
 
     def export_midi(self):
         """Export MIDI lanes to MIDI files"""
@@ -373,6 +435,9 @@ class MainWindow(QMainWindow):
 
                 # Update playback engine with new lanes
                 self.playback_engine.set_lanes(self.project.lanes)
+
+                # Mark as modified
+                self.modified = True
 
                 # Show success message
                 QMessageBox.information(self, "Success",
@@ -491,6 +556,9 @@ class MainWindow(QMainWindow):
         for lane_widget in self.lane_widgets:
             lane_widget.update_bpm(bpm)
 
+        # Mark as modified
+        self.modified = True
+
     def on_global_snap_toggled(self, checked):
         """Toggle snap to grid globally"""
         self.playback_engine.set_snap_to_grid(checked)
@@ -508,6 +576,11 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         """Cleanup audio resources on window close"""
+        # Check for unsaved changes
+        if not self.check_unsaved_changes():
+            event.ignore()
+            return
+
         try:
             self.audio_engine.cleanup()
         except Exception as e:
