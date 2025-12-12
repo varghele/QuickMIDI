@@ -139,6 +139,25 @@ class MidiOutputEngine:
                 message = [0xB0 + midi_channel, control, value]
                 self.send_midi_message(message)
 
+            elif block.message_type == MidiMessageType.KEMPER_RIG_CHANGE:
+                # Kemper Rig Change: CC47 with bank value, then CC50-54 to load slot
+                bank = block.value1  # 0-124
+                slot = block.value2  # 1-5
+
+                print(f"Kemper Rig Change: Bank={bank}, Slot={slot}, Channel={midi_channel}")
+
+                # Send CC47 with bank value to preselect Performance
+                cc47_message = [0xB0 + midi_channel, 47, bank]
+                self.send_midi_message(cc47_message)
+                print(f"Sent CC47: {cc47_message}")
+
+                # Send CC50-54 (depending on slot) with value 1 to load the slot
+                # CC50 = slot 1, CC51 = slot 2, etc.
+                cc_number = 49 + slot  # slot 1-5 maps to CC50-54
+                cc_slot_message = [0xB0 + midi_channel, cc_number, 1]
+                self.send_midi_message(cc_slot_message)
+                print(f"Sent CC{cc_number}: {cc_slot_message}")
+
             # Mark as triggered
             self._triggered_blocks.add(block_id)
 

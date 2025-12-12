@@ -7,6 +7,7 @@ class MidiMessageType(Enum):
     CONTROL_CHANGE = "CC"
     NOTE_ON = "NOTE_ON"
     NOTE_OFF = "NOTE_OFF"
+    KEMPER_RIG_CHANGE = "KEMPER_RIG"
 
 
 class MidiBlock:
@@ -32,6 +33,17 @@ class MidiBlock:
         self.message_type = MidiMessageType.NOTE_ON if note_on else MidiMessageType.NOTE_OFF
         self.value1 = note_number
         self.value2 = velocity
+
+    def set_kemper_rig_change(self, bank: int, slot: int):
+        """Set Kemper Rig Change
+
+        Args:
+            bank: Performance/bank number (0-124)
+            slot: Slot number (1-5)
+        """
+        self.message_type = MidiMessageType.KEMPER_RIG_CHANGE
+        self.value1 = max(0, min(124, bank))  # Clamp to 0-124
+        self.value2 = max(1, min(5, slot))    # Clamp to 1-5
 
     def to_dict(self) -> Dict[str, Any]:
         return {

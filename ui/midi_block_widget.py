@@ -72,6 +72,14 @@ class MidiBlockWidget(QFrame):
                 'hover': '#EF5350',
                 'dragging': '#E57373'
             }
+        elif self.block.message_type == MidiMessageType.KEMPER_RIG_CHANGE:
+            # Kemper green for Kemper Rig Change
+            return {
+                'bg': '#073f2c',
+                'border': '#05301f',
+                'hover': '#0a5038',
+                'dragging': '#0d6045'
+            }
         else:
             # Default gray for unknown types
             return {
@@ -158,6 +166,8 @@ class MidiBlockWidget(QFrame):
             return f"NON\n{self.block.value1}"
         elif self.block.message_type == MidiMessageType.NOTE_OFF:
             return f"NOF\n{self.block.value1}"
+        elif self.block.message_type == MidiMessageType.KEMPER_RIG_CHANGE:
+            return f"KEMP\n{self.block.value1}:{self.block.value2}"
         return "MIDI"
 
     def get_block_info(self, compact=False):
@@ -176,6 +186,8 @@ class MidiBlockWidget(QFrame):
                 return f"NON:{self.block.value1}"
             elif self.block.message_type == MidiMessageType.NOTE_OFF:
                 return f"NOF:{self.block.value1}"
+            elif self.block.message_type == MidiMessageType.KEMPER_RIG_CHANGE:
+                return f"KEMP:{self.block.value1}:{self.block.value2}"
             return "MIDI"
         else:
             # Full version for wider blocks
@@ -187,6 +199,8 @@ class MidiBlockWidget(QFrame):
                 return f"NON: {self.block.value1}\nVel: {self.block.value2}"
             elif self.block.message_type == MidiMessageType.NOTE_OFF:
                 return f"NOF: {self.block.value1}\nVel: {self.block.value2}"
+            elif self.block.message_type == MidiMessageType.KEMPER_RIG_CHANGE:
+                return f"KEMPER\nBank: {self.block.value1}\nSlot: {self.block.value2}"
             return "MIDI"
 
     def update_position(self):
@@ -386,7 +400,7 @@ class MidiBlockEditDialog(QDialog):
 
         # Message type
         self.message_type_combo = QComboBox()
-        self.message_type_combo.addItems(["Control Change", "Program Change", "Note On", "Note Off"])
+        self.message_type_combo.addItems(["Control Change", "Program Change", "Note On", "Note Off", "Kemper Rig Change"])
         self.message_type_combo.currentTextChanged.connect(self.on_message_type_changed)
         form_layout.addRow("Message Type:", self.message_type_combo)
 
@@ -422,7 +436,8 @@ class MidiBlockEditDialog(QDialog):
             MidiMessageType.CONTROL_CHANGE: 0,
             MidiMessageType.PROGRAM_CHANGE: 1,
             MidiMessageType.NOTE_ON: 2,
-            MidiMessageType.NOTE_OFF: 3
+            MidiMessageType.NOTE_OFF: 3,
+            MidiMessageType.KEMPER_RIG_CHANGE: 4
         }
         self.message_type_combo.setCurrentIndex(type_map.get(self.block.message_type, 0))
 
@@ -436,14 +451,25 @@ class MidiBlockEditDialog(QDialog):
         if text == "Control Change":
             self.value1_label.setText("CC Number:")
             self.value2_label.setText("CC Value:")
+            self.value1_spinbox.setRange(0, 127)
+            self.value2_spinbox.setRange(0, 127)
             self.value2_spinbox.setEnabled(True)
         elif text == "Program Change":
             self.value1_label.setText("Program Number:")
             self.value2_label.setText("(Unused)")
+            self.value1_spinbox.setRange(0, 127)
             self.value2_spinbox.setEnabled(False)
         elif text in ["Note On", "Note Off"]:
             self.value1_label.setText("Note Number:")
             self.value2_label.setText("Velocity:")
+            self.value1_spinbox.setRange(0, 127)
+            self.value2_spinbox.setRange(0, 127)
+            self.value2_spinbox.setEnabled(True)
+        elif text == "Kemper Rig Change":
+            self.value1_label.setText("Bank (0-124):")
+            self.value2_label.setText("Slot (1-5):")
+            self.value1_spinbox.setRange(0, 124)
+            self.value2_spinbox.setRange(1, 5)
             self.value2_spinbox.setEnabled(True)
 
     def accept(self):
@@ -462,5 +488,7 @@ class MidiBlockEditDialog(QDialog):
             self.block.set_note(self.value1_spinbox.value(), self.value2_spinbox.value(), True)
         elif text == "Note Off":
             self.block.set_note(self.value1_spinbox.value(), self.value2_spinbox.value(), False)
+        elif text == "Kemper Rig Change":
+            self.block.set_kemper_rig_change(self.value1_spinbox.value(), self.value2_spinbox.value())
 
         super().accept()

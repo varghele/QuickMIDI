@@ -106,6 +106,28 @@ class FileManager:
                                        time=0)
                     events.append((start_ticks, msg))
 
+                elif block.message_type == MidiMessageType.KEMPER_RIG_CHANGE:
+                    # Kemper Rig Change: CC47 with bank, then CC50-54 with value 1
+                    bank = block.value1  # 0-124
+                    slot = block.value2  # 1-5
+
+                    # Add CC47 with bank value
+                    cc47 = mido.Message('control_change',
+                                        channel=lane.midi_channel - 1,
+                                        control=47,
+                                        value=bank,
+                                        time=0)
+                    events.append((start_ticks, cc47))
+
+                    # Add CC50-54 (depending on slot) with value 1
+                    cc_number = 49 + slot  # slot 1-5 maps to CC50-54
+                    cc_slot = mido.Message('control_change',
+                                           channel=lane.midi_channel - 1,
+                                           control=cc_number,
+                                           value=1,
+                                           time=0)
+                    events.append((start_ticks, cc_slot))
+
             # Sort events by time
             events.sort(key=lambda x: x[0])
 
