@@ -169,7 +169,7 @@ class SongStructure:
             part = SongPart(
                 name=part_data["name"],
                 signature=part_data["signature"],
-                bpm=part_data["bmp"],
+                bpm=part_data["bpm"],
                 num_bars=part_data["num_bars"],
                 transition=part_data["transition"],
                 color=part_data["color"],

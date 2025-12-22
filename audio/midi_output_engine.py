@@ -158,6 +158,46 @@ class MidiOutputEngine:
                 self.send_midi_message(cc_slot_message)
                 print(f"Sent CC{cc_number}: {cc_slot_message}")
 
+            elif block.message_type == MidiMessageType.VOICELIVE3_PRESET:
+                # Voicelive3 Preset: CC32 for bank select, then PC for patch
+                bank = block.value1   # 0-3
+                patch = block.value2  # 0-127
+
+                print(f"Voicelive3 Preset: Bank={bank}, Patch={patch}, Channel={midi_channel}")
+
+                # Send CC32 (Bank Select LSB) with bank value
+                cc32_message = [0xB0 + midi_channel, 32, bank]
+                self.send_midi_message(cc32_message)
+                print(f"Sent CC32: {cc32_message}")
+
+                # Send Program Change for patch selection
+                pc_message = [0xC0 + midi_channel, patch]
+                self.send_midi_message(pc_message)
+                print(f"Sent PC: {pc_message}")
+
+            elif block.message_type == MidiMessageType.QUAD_CORTEX_PRESET:
+                # Quad Cortex Preset: CC0 for bank, PC for preset, CC43 for scene
+                bank = block.value1    # 0-15
+                preset = block.value2  # 0-127
+                scene = block.value3   # 0-7 (A-H)
+
+                print(f"Quad Cortex Preset: Bank={bank}, Preset={preset}, Scene={scene}, Channel={midi_channel}")
+
+                # Send CC0 (Bank Select MSB) with bank value
+                cc0_message = [0xB0 + midi_channel, 0, bank]
+                self.send_midi_message(cc0_message)
+                print(f"Sent CC0: {cc0_message}")
+
+                # Send Program Change for preset selection
+                pc_message = [0xC0 + midi_channel, preset]
+                self.send_midi_message(pc_message)
+                print(f"Sent PC: {pc_message}")
+
+                # Send CC43 for scene selection (0-7 for scenes A-H)
+                cc43_message = [0xB0 + midi_channel, 43, scene]
+                self.send_midi_message(cc43_message)
+                print(f"Sent CC43: {cc43_message}")
+
             # Mark as triggered
             self._triggered_blocks.add(block_id)
 

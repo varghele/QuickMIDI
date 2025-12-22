@@ -80,6 +80,22 @@ class MidiBlockWidget(QFrame):
                 'hover': '#0a5038',
                 'dragging': '#0d6045'
             }
+        elif self.block.message_type == MidiMessageType.VOICELIVE3_PRESET:
+            # Greyish blue for Voicelive3 Preset
+            return {
+                'bg': '#5c6d7e',
+                'border': '#4a5a6a',
+                'hover': '#6e8090',
+                'dragging': '#8095a8'
+            }
+        elif self.block.message_type == MidiMessageType.QUAD_CORTEX_PRESET:
+            # Gray for Quad Cortex Preset
+            return {
+                'bg': '#6b6b6b',
+                'border': '#505050',
+                'hover': '#7d7d7d',
+                'dragging': '#909090'
+            }
         else:
             # Default gray for unknown types
             return {
@@ -168,6 +184,11 @@ class MidiBlockWidget(QFrame):
             return f"NOF\n{self.block.value1}"
         elif self.block.message_type == MidiMessageType.KEMPER_RIG_CHANGE:
             return f"KEMP\n{self.block.value1}:{self.block.value2}"
+        elif self.block.message_type == MidiMessageType.VOICELIVE3_PRESET:
+            return f"VL3\n{self.block.value1}:{self.block.value2}"
+        elif self.block.message_type == MidiMessageType.QUAD_CORTEX_PRESET:
+            scene_letter = chr(65 + self.block.value3)  # 0-7 -> A-H
+            return f"QC\n{self.block.value1}:{self.block.value2}:{scene_letter}"
         return "MIDI"
 
     def get_block_info(self, compact=False):
@@ -188,6 +209,11 @@ class MidiBlockWidget(QFrame):
                 return f"NOF:{self.block.value1}"
             elif self.block.message_type == MidiMessageType.KEMPER_RIG_CHANGE:
                 return f"KEMP:{self.block.value1}:{self.block.value2}"
+            elif self.block.message_type == MidiMessageType.VOICELIVE3_PRESET:
+                return f"VL3:{self.block.value1}:{self.block.value2}"
+            elif self.block.message_type == MidiMessageType.QUAD_CORTEX_PRESET:
+                scene_letter = chr(65 + self.block.value3)  # 0-7 -> A-H
+                return f"QC:{self.block.value1}:{self.block.value2}:{scene_letter}"
             return "MIDI"
         else:
             # Full version for wider blocks
@@ -201,6 +227,11 @@ class MidiBlockWidget(QFrame):
                 return f"NOF: {self.block.value1}\nVel: {self.block.value2}"
             elif self.block.message_type == MidiMessageType.KEMPER_RIG_CHANGE:
                 return f"KEMPER\nBank: {self.block.value1}\nSlot: {self.block.value2}"
+            elif self.block.message_type == MidiMessageType.VOICELIVE3_PRESET:
+                return f"VL3\nBank: {self.block.value1}\nPatch: {self.block.value2}"
+            elif self.block.message_type == MidiMessageType.QUAD_CORTEX_PRESET:
+                scene_letter = chr(65 + self.block.value3)  # 0-7 -> A-H
+                return f"QC\nBank: {self.block.value1}\nPreset: {self.block.value2}\nScene: {scene_letter}"
             return "MIDI"
 
     def update_position(self):
@@ -400,7 +431,7 @@ class MidiBlockEditDialog(QDialog):
 
         # Message type
         self.message_type_combo = QComboBox()
-        self.message_type_combo.addItems(["Control Change", "Program Change", "Note On", "Note Off", "Kemper Rig Change"])
+        self.message_type_combo.addItems(["Control Change", "Program Change", "Note On", "Note Off", "Kemper Rig Change", "Voicelive3 Preset", "Quad Cortex Preset"])
         self.message_type_combo.currentTextChanged.connect(self.on_message_type_changed)
         form_layout.addRow("Message Type:", self.message_type_combo)
 
@@ -415,6 +446,14 @@ class MidiBlockEditDialog(QDialog):
         self.value2_spinbox.setRange(0, 127)
         self.value2_label = QLabel("CC Value:")
         form_layout.addRow(self.value2_label, self.value2_spinbox)
+
+        # Value 3 (for presets requiring 3 parameters, e.g., QC scene)
+        self.value3_spinbox = QSpinBox()
+        self.value3_spinbox.setRange(0, 7)
+        self.value3_label = QLabel("Scene (A-H):")
+        form_layout.addRow(self.value3_label, self.value3_spinbox)
+        self.value3_label.setVisible(False)
+        self.value3_spinbox.setVisible(False)
 
         layout.addLayout(form_layout)
 
@@ -437,17 +476,24 @@ class MidiBlockEditDialog(QDialog):
             MidiMessageType.PROGRAM_CHANGE: 1,
             MidiMessageType.NOTE_ON: 2,
             MidiMessageType.NOTE_OFF: 3,
-            MidiMessageType.KEMPER_RIG_CHANGE: 4
+            MidiMessageType.KEMPER_RIG_CHANGE: 4,
+            MidiMessageType.VOICELIVE3_PRESET: 5,
+            MidiMessageType.QUAD_CORTEX_PRESET: 6
         }
         self.message_type_combo.setCurrentIndex(type_map.get(self.block.message_type, 0))
 
         self.value1_spinbox.setValue(self.block.value1)
         self.value2_spinbox.setValue(self.block.value2)
+        self.value3_spinbox.setValue(self.block.value3)
 
         self.on_message_type_changed(self.message_type_combo.currentText())
 
     def on_message_type_changed(self, text):
         """Update labels based on selected message type"""
+        # Hide value3 by default, only show for QC
+        self.value3_label.setVisible(False)
+        self.value3_spinbox.setVisible(False)
+
         if text == "Control Change":
             self.value1_label.setText("CC Number:")
             self.value2_label.setText("CC Value:")
@@ -471,6 +517,22 @@ class MidiBlockEditDialog(QDialog):
             self.value1_spinbox.setRange(0, 124)
             self.value2_spinbox.setRange(1, 5)
             self.value2_spinbox.setEnabled(True)
+        elif text == "Voicelive3 Preset":
+            self.value1_label.setText("Bank (0-3):")
+            self.value2_label.setText("Patch (0-127):")
+            self.value1_spinbox.setRange(0, 3)
+            self.value2_spinbox.setRange(0, 127)
+            self.value2_spinbox.setEnabled(True)
+        elif text == "Quad Cortex Preset":
+            self.value1_label.setText("Bank (0-15):")
+            self.value2_label.setText("Preset (0-127):")
+            self.value3_label.setText("Scene (0-7, A-H):")
+            self.value1_spinbox.setRange(0, 15)
+            self.value2_spinbox.setRange(0, 127)
+            self.value3_spinbox.setRange(0, 7)
+            self.value2_spinbox.setEnabled(True)
+            self.value3_label.setVisible(True)
+            self.value3_spinbox.setVisible(True)
 
     def accept(self):
         """Save values back to the block"""
@@ -490,5 +552,9 @@ class MidiBlockEditDialog(QDialog):
             self.block.set_note(self.value1_spinbox.value(), self.value2_spinbox.value(), False)
         elif text == "Kemper Rig Change":
             self.block.set_kemper_rig_change(self.value1_spinbox.value(), self.value2_spinbox.value())
+        elif text == "Voicelive3 Preset":
+            self.block.set_voicelive3_preset(self.value1_spinbox.value(), self.value2_spinbox.value())
+        elif text == "Quad Cortex Preset":
+            self.block.set_quad_cortex_preset(self.value1_spinbox.value(), self.value2_spinbox.value(), self.value3_spinbox.value())
 
         super().accept()
