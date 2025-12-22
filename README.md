@@ -16,8 +16,14 @@ pip install cffi pycparser
 pip install PyQt6_sip sip
 pip install decorator typing_extensions
 pip install soxr
+
+pip install pyinstaller
 ``````
 You can also run:
 ``````bash
 pip install -r requirements.txt
+``````
+To compile:
+``````bash
+pyinstaller --onefile --name QuickMIDI main.py
 ``````
